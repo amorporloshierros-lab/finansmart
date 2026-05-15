@@ -567,15 +567,18 @@ function MainApp({ user, state, dispatch }) {
   const thisMonthInc    = useMemo(() => { const m = monthStr(); return (user.extraIncome || []).filter((i) => i.date.startsWith(m)); }, [user.extraIncome]);
   const totalDaily      = useMemo(() => thisMonthExp.reduce((s, e) => s + e.amount, 0), [thisMonthExp]);
   const totalExtraInc   = useMemo(() => thisMonthInc.reduce((s, i) => s + i.amount, 0), [thisMonthInc]);
-  const effectiveIncome = user.income + totalExtraInc;  // ingreso base + extras del mes
+  // Para análisis 50/30/20 y score solo usamos el ingreso BASE (estable)
+  // Los extras son variables y no deben inflar la salud financiera
+  const effectiveIncome = user.income; // base estable
+  const totalIncomeMes  = user.income + totalExtraInc; // total real del mes (para el "disponible")
 
   // Split daily expenses by tipo (necesidad vs ocio) for 50/30/20
   const dailyNecesidades = useMemo(() => thisMonthExp.filter((e) => e.tipo === "necesidad").reduce((s, e) => s + e.amount, 0), [thisMonthExp]);
   const dailyOcio        = useMemo(() => thisMonthExp.filter((e) => e.tipo !== "necesidad").reduce((s, e) => s + e.amount, 0), [thisMonthExp]);
 
   const totalSpent   = totalFixed + totalDebtMo + totalDaily;
-  const remaining    = effectiveIncome - totalSpent;
-  const invMonthly   = effectiveIncome * user.goals.invPct / 100;
+  const remaining    = totalIncomeMes - totalSpent; // disponible real incluye extras
+  const invMonthly   = effectiveIncome * user.goals.invPct / 100; // inversión sobre ingreso base
   const totalExp     = totalFixed + totalDebtMo;
   const emGoal       = totalExp * user.goals.emMonths;
   const emPct        = emGoal > 0 ? (user.goals.emBal / emGoal) * 100 : 0;
@@ -697,9 +700,9 @@ function MainApp({ user, state, dispatch }) {
       <div style={sx.card}>
         <div style={{ ...sx.row, marginBottom: showAddInc ? 12 : 0 }}>
           <div>
-            <div style={{ fontWeight: 700 }}>💰 Ingresos extra del mes</div>
-            {thisMonthInc.length > 0 && <div style={{ fontSize: 12, color: C.green, marginTop: 2 }}>{thisMonthInc.length} ingreso(s) · +{fmt(totalExtraInc)}</div>}
-            {thisMonthInc.length === 0 && <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>Negocios, freelance, ventas…</div>}
+            <div style={{ fontWeight: 700 }}>💰 Ingresos extra del mes <span style={{ fontSize: 10, background: "#78350f", color: "#fbbf24", borderRadius: 6, padding: "2px 7px", fontWeight: 600, marginLeft: 4 }}>VARIABLE</span></div>
+            {thisMonthInc.length > 0 && <div style={{ fontSize: 12, color: C.green, marginTop: 2 }}>{thisMonthInc.length} ingreso(s) · +{fmt(totalExtraInc)} · no cuenta en el análisis base</div>}
+            {thisMonthInc.length === 0 && <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>Negocios, freelance, ventas… No se usan en el análisis 50/30/20</div>}
           </div>
           <button style={{ ...sx.btn(C.green), padding: "8px 14px", fontSize: 13 }} onClick={() => setShowAddInc(!showAddInc)}>+ Cargar</button>
         </div>
@@ -762,7 +765,8 @@ function MainApp({ user, state, dispatch }) {
 
       {/* Regla 50/30/20 */}
       <div style={sx.card}>
-        <div style={{ fontWeight: 700, marginBottom: 14 }}>Regla 50 / 30 / 20 — tu situación real</div>
+        <div style={{ fontWeight: 700, marginBottom: 6 }}>Regla 50 / 30 / 20 — tu situación real</div>
+        <div style={{ fontSize: 11, color: C.dim, marginBottom: 12 }}>Basado en ingreso fijo {fmt(user.income)}/mes · los ingresos variables no se incluyen</div>
         {[
           { label: "Necesidades (ideal 50%)", val: totalFixed + totalDebtMo + dailyNecesidades, ideal: 0.5, color: C.blue, sub: "Fijos + deudas + necesidades diarias" },
           { label: "Ocio / gustos (ideal 30%)", val: dailyOcio, ideal: 0.3, color: C.amber, sub: "Gastos etiquetados como 'gusto'" },
@@ -883,6 +887,33 @@ function MainApp({ user, state, dispatch }) {
 
           {/* Deudas */}
           <div style={{ fontWeight: 700, fontSize: 16, margin: "8px 0 12px" }}>Deudas activas</div>
+
+          {/* Resumen total deudas */}
+          {user.debts.length > 0 && (() => {
+            const totalMensual  = user.debts.reduce((s, d) => s + (+d.monthly || 0), 0);
+            const totalRestante = user.debts.reduce((s, d) => s + ((d.cuotas - (d.cuotasPagadas || 0)) * (+d.monthly || 0)), 0);
+            const totalOriginal = user.debts.reduce((s, d) => s + (+d.total || 0), 0);
+            return (
+              <div style={{ ...sx.card, background: "#1a0f0f", borderColor: "#7f1d1d", marginBottom: 8 }}>
+                <div style={{ fontWeight: 700, color: C.red, marginBottom: 10, fontSize: 13 }}>📊 Resumen total de deudas</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 3 }}>DEUDA ORIGINAL</div>
+                    <div style={{ fontWeight: 700, color: C.red }}>{fmt(totalOriginal)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 3 }}>CUOTA MENSUAL</div>
+                    <div style={{ fontWeight: 700, color: C.amber }}>{fmt(totalMensual)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 3 }}>TOTAL RESTANTE</div>
+                    <div style={{ fontWeight: 700, color: C.text }}>{fmt(totalRestante)}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Nota explicativa */}
           <div style={{ ...sx.card, background: "#0f1a2e", borderColor: "#1e3a5f", marginBottom: 4 }}>
             <div style={{ fontSize: 13, color: "#60a5fa", lineHeight: 1.5 }}>
