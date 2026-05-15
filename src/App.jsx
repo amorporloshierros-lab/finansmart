@@ -1,4 +1,5 @@
 import { useState, useMemo, useReducer, useRef, useEffect } from "react";
+import { loginGoogle, loginEmail, registerEmail, logout, onAuth, saveUserData, loadUserData } from "./firebase";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -28,6 +29,7 @@ const DAILY_CATS = [
   { id: "hogar",    label: "Hogar / Arreglos",    icon: "🔧", color: "#6366f1", tipo: "necesidad"  },
   { id: "imprev",   label: "Imprevisto",          icon: "⚡", color: "#eab308", tipo: "necesidad"  },
   { id: "regalo",   label: "Regalo / Social",     icon: "🎁", color: "#f43f5e", tipo: "ocio"       },
+  { id: "mascota",  label: "Mascota",             icon: "🐾", color: "#a78bfa", tipo: "necesidad"  },
   { id: "otros",    label: "Otros",               icon: "📦", color: "#64748b", tipo: "ocio"       },
 ];
 
@@ -61,6 +63,10 @@ const FIXED_TYPES = [
   { id: "seg_vida",         label: "Seguro Vida / Salud",        icon: "❤️", group: "Seguros"    },
   // Personal
   { id: "gym",              label: "Gimnasio / Deporte",         icon: "🏋️", group: "Personal"   },
+  // Mascotas
+  { id: "mascota_comida",   label: "Comida / alimento mascota",  icon: "🐾", group: "Mascotas"   },
+  { id: "mascota_vet",      label: "Veterinario / medicamentos", icon: "🏥", group: "Mascotas"   },
+  { id: "mascota_otros",    label: "Accesorios / baño mascota",  icon: "🦴", group: "Mascotas"   },
   // Otros
   { id: "otros_fij",        label: "Otros fijos",                icon: "📦", group: "Otros"      },
 ];
@@ -148,7 +154,11 @@ function reduce(state, act) {
     users: state.users.map((u) => (u.id === state.uid ? fn(u) : u)),
   });
   switch (act.type) {
-    case "CREATE":   return { ...state, users: [...state.users, mkUser(act.name, act.income)] };
+    case "CREATE":    return { ...state, users: [...state.users, mkUser(act.name, act.income)] };
+    case "CREATE_FB": {
+      const u = { ...mkUser(act.name, 0), id: act.uid };
+      return { users: [u], uid: act.uid };
+    }
     case "LOGIN":    return { ...state, uid: act.id };
     case "LOGOUT":   return { ...state, uid: null };
     case "DEL_USER": return { ...state, users: state.users.filter((u) => u.id !== act.id), uid: null };
@@ -1330,25 +1340,149 @@ function MainApp({ user, state, dispatch }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SCREEN: FIREBASE LOGIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+function FirebaseLoginScreen() {
+  const [mode, setMode]       = useState("login"); // "login" | "register"
+  const [email, setEmail]     = useState("");
+  const [pass, setPass]       = useState("");
+  const [error, setError]     = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const wrap  = { fontFamily: "'Inter',-apple-system,sans-serif", background: C.bg, minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, color: C.text };
+  const card  = { background: "#111827", border: "1px solid #1f2937", borderRadius: 20, padding: 28, width: "100%", maxWidth: 380 };
+
+  const doGoogle = async () => {
+    setError(""); setLoading(true);
+    try { await loginGoogle(); } catch (e) { setError("Error con Google. Intentá de nuevo."); }
+    setLoading(false);
+  };
+
+  const doEmail = async () => {
+    if (!email || !pass) return setError("Completá email y contraseña.");
+    setError(""); setLoading(true);
+    try {
+      if (mode === "login") await loginEmail(email, pass);
+      else await registerEmail(email, pass);
+    } catch (e) {
+      setError(e.code === "auth/wrong-password" || e.code === "auth/user-not-found"
+        ? "Email o contraseña incorrectos."
+        : e.code === "auth/email-already-in-use"
+        ? "Ese email ya tiene cuenta. Iniciá sesión."
+        : "Error: " + e.message);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={wrap}>
+      <div style={{ textAlign: "center", marginBottom: 36 }}>
+        <div style={{ fontSize: 60, marginBottom: 8 }}>💸</div>
+        <div style={{ fontSize: 30, fontWeight: 900 }}>FinanSmart</div>
+        <div style={{ fontSize: 14, color: C.dim, marginTop: 4 }}>Controlá tu dinero · Construí tu futuro</div>
+      </div>
+
+      <div style={card}>
+        <button
+          onClick={doGoogle}
+          disabled={loading}
+          style={{ ...sx.btn("#fff"), color: "#111", width: "100%", justifyContent: "center", marginBottom: 20, fontSize: 15, padding: "13px 0" }}>
+          <span>🔵</span> {loading ? "Cargando..." : "Continuar con Google"}
+        </button>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+          <div style={{ flex: 1, height: 1, background: "#374151" }} />
+          <span style={{ color: C.dim, fontSize: 12 }}>o con email</span>
+          <div style={{ flex: 1, height: 1, background: "#374151" }} />
+        </div>
+
+        <label style={sx.label}>Email</label>
+        <input style={{ ...sx.input, marginBottom: 12 }} type="email" placeholder="tu@email.com"
+          value={email} onChange={e => setEmail(e.target.value)} />
+
+        <label style={sx.label}>Contraseña</label>
+        <input style={{ ...sx.input, marginBottom: 16 }} type="password" placeholder="••••••••"
+          value={pass} onChange={e => setPass(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && doEmail()} />
+
+        {error && <div style={{ color: C.red, fontSize: 13, marginBottom: 12, textAlign: "center" }}>{error}</div>}
+
+        <button onClick={doEmail} disabled={loading}
+          style={{ ...sx.btn(), width: "100%", justifyContent: "center", fontSize: 15, padding: "13px 0", marginBottom: 14 }}>
+          {loading ? "..." : mode === "login" ? "Iniciar sesión" : "Crear cuenta"}
+        </button>
+
+        <div style={{ textAlign: "center", fontSize: 13, color: C.muted }}>
+          {mode === "login" ? "¿No tenés cuenta? " : "¿Ya tenés cuenta? "}
+          <span style={{ color: C.green, cursor: "pointer", fontWeight: 600 }}
+            onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}>
+            {mode === "login" ? "Registrate" : "Iniciá sesión"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ROOT
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  // Carga estado desde localStorage al iniciar (datos persisten entre sesiones)
-  const [state, dispatch] = useReducer(reduce, INIT, () => {
-    try {
-      const saved = localStorage.getItem("finansmart-v1");
-      return saved ? JSON.parse(saved) : INIT;
-    } catch { return INIT; }
-  });
+  const [state, dispatch]   = useReducer(reduce, INIT);
+  const [fbUser, setFbUser] = useState(undefined); // undefined=cargando, null=no logueado
+  const initialized         = useRef(false);
+  const saving              = useRef(false);
 
-  // Guarda en localStorage cada vez que cambia el estado
+  // Escucha cambios de auth de Firebase
   useEffect(() => {
-    try { localStorage.setItem("finansmart-v1", JSON.stringify(state)); } catch {}
-  }, [state]);
+    const unsub = onAuth(async (u) => {
+      setFbUser(u);
+      if (!u) { initialized.current = false; return; }
+      // Carga datos desde Firestore
+      const data = await loadUserData(u.uid);
+      if (data) {
+        dispatch({ type: "IMPORT", data });
+      } else {
+        // Usuario nuevo: crear perfil con UID de Firebase
+        dispatch({ type: "CREATE_FB", uid: u.uid, name: u.displayName || u.email?.split("@")[0] || "Usuario" });
+      }
+      initialized.current = true;
+    });
+    return unsub;
+  }, []);
+
+  // Guarda en Firestore cada vez que cambia el estado (después de inicializar)
+  useEffect(() => {
+    if (!fbUser || !initialized.current || saving.current) return;
+    saving.current = true;
+    saveUserData(fbUser.uid, state).finally(() => { saving.current = false; });
+  }, [state, fbUser]);
+
+  // Pantalla de carga
+  if (fbUser === undefined) {
+    return (
+      <div style={{ background: "#0a0e1a", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, color: "#f1f5f9", fontFamily: "'Inter',sans-serif" }}>
+        <div style={{ fontSize: 52 }}>💸</div>
+        <div style={{ fontSize: 16, color: "#6b7280" }}>Cargando FinanSmart...</div>
+      </div>
+    );
+  }
+
+  if (!fbUser) return <FirebaseLoginScreen />;
 
   const user = state.users.find((u) => u.id === state.uid);
+
+  // Usuario nuevo: mostrar formulario de perfil (nombre ya viene de Firebase)
   if (!state.uid || !user) return <LoginScreen state={state} dispatch={dispatch} />;
-  if (!user.onboarded)    return <OnboardingScreen user={user} dispatch={dispatch} />;
-  return <MainApp user={user} state={state} dispatch={dispatch} />;
+  if (!user.onboarded)     return <OnboardingScreen user={user} dispatch={dispatch} />;
+
+  // Agregar botón de cerrar sesión en el dispatch original
+  const dispatchWithLogout = (action) => {
+    if (action.type === "LOGOUT") { logout(); return; }
+    dispatch(action);
+  };
+
+  return <MainApp user={user} state={state} dispatch={dispatchWithLogout} />;
 }
