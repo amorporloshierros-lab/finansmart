@@ -659,8 +659,8 @@ function MainApp({ user, state, dispatch }) {
     { id: "inicio",  label: "Inicio",  icon: "📊" },
     { id: "fijos",   label: "Fijos",   icon: "🏠" },
     { id: "diarios", label: "Gastos",  icon: "📝" },
-    { id: "metas",   label: "Metas",   icon: "🎯" },
-    { id: "tips",    label: "Tips",    icon: "💡" },
+    { id: "deudas",  label: "Deudas",  icon: "💳" },
+    { id: "asesor",  label: "Asesor",  icon: "🤖" },
   ];
 
   // ── TAB: INICIO ────────────────────────────────────────────────────────────
@@ -885,108 +885,17 @@ function MainApp({ user, state, dispatch }) {
             );
           })}
 
-          {/* Deudas */}
-          <div style={{ fontWeight: 700, fontSize: 16, margin: "8px 0 12px" }}>Deudas activas</div>
-
-          {/* Resumen total deudas */}
-          {user.debts.length > 0 && (() => {
-            const totalMensual  = user.debts.reduce((s, d) => s + (+d.monthly || 0), 0);
-            const totalRestante = user.debts.reduce((s, d) => s + ((d.cuotas - (d.cuotasPagadas || 0)) * (+d.monthly || 0)), 0);
-            const totalOriginal = user.debts.reduce((s, d) => s + (+d.total || 0), 0);
-            return (
-              <div style={{ ...sx.card, background: "#1a0f0f", borderColor: "#7f1d1d", marginBottom: 8 }}>
-                <div style={{ fontWeight: 700, color: C.red, marginBottom: 10, fontSize: 13 }}>📊 Resumen total de deudas</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 3 }}>DEUDA ORIGINAL</div>
-                    <div style={{ fontWeight: 700, color: C.red }}>{fmt(totalOriginal)}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 3 }}>CUOTA MENSUAL</div>
-                    <div style={{ fontWeight: 700, color: C.amber }}>{fmt(totalMensual)}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: C.muted, marginBottom: 3 }}>TOTAL RESTANTE</div>
-                    <div style={{ fontWeight: 700, color: C.text }}>{fmt(totalRestante)}</div>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Nota explicativa */}
-          <div style={{ ...sx.card, background: "#0f1a2e", borderColor: "#1e3a5f", marginBottom: 4 }}>
-            <div style={{ fontSize: 13, color: "#60a5fa", lineHeight: 1.5 }}>
-              💡 Las cuotas se suman automáticamente a tus gastos fijos mensuales. Se descuentan de tu ingreso disponible igual que el alquiler o los servicios.
-            </div>
-          </div>
-
-          {user.debts.length === 0 && (
-            <div style={{ ...sx.card, textAlign: "center", color: C.muted, padding: 20 }}>Sin deudas registradas 🎉</div>
-          )}
-
-          {user.debts.map((d) => {
-            const pagadas    = d.cuotasPagadas || 0;
-            const restantes  = (d.cuotas || 0) - pagadas;
-            const pct        = d.cuotas > 0 ? (pagadas / d.cuotas) * 100 : 0;
-            return (
-              <div key={d.id} style={{ ...sx.card, marginBottom: 8 }}>
-                <div style={{ ...sx.row, marginBottom: 10 }}>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>💳 {d.name}</div>
-                    <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
-                      {fmt(d.monthly)}/mes{d.rate > 0 ? ` · ${d.rate}% anual` : ""}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ color: C.red, fontWeight: 700 }}>{fmt(d.total)}</div>
-                    <button onClick={() => removeDebt(d.id)}
-                      style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: 12 }}>✕ quitar</button>
-                  </div>
-                </div>
-
-                {/* Progreso cuotas */}
-                <ProgBar pct={pct} color={pct >= 100 ? C.green : `linear-gradient(90deg,${C.red},${C.amber})`} h={8} />
-                <div style={{ ...sx.row, marginTop: 6, marginBottom: 10 }}>
-                  <span style={{ fontSize: 11, color: C.muted }}>
-                    {pagadas} de {d.cuotas} cuotas pagadas
-                  </span>
-                  <span style={{ fontSize: 11, color: C.amber, fontWeight: 600 }}>
-                    Quedan {restantes} · {fmt(restantes * d.monthly)}
-                  </span>
-                </div>
-
-                {/* Botón pagar cuota */}
-                <button
-                  style={{ ...sx.btn(C.green), width: "100%", justifyContent: "center", fontSize: 13, padding: "8px 14px" }}
-                  onClick={() => payInstallment(d.id)}
-                >
-                  ✓ Registrar cuota pagada ({pagadas + 1}/{d.cuotas})
-                </button>
-              </div>
-            );
-          })}
-
-          {/* Agregar deuda */}
-          <div style={sx.card}>
-            <div style={{ fontWeight: 700, marginBottom: 12 }}>+ Agregar deuda en cuotas</div>
-            <input style={{ ...sx.input, marginBottom: 8 }} placeholder="Ej: Tarjeta Visa, Préstamo, Muebles 12 cuotas"
-              value={newDebt.name} onChange={(e) => setNewDebt((p) => ({ ...p, name: e.target.value }))} />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-              <div><label style={sx.label}>Monto total ($)</label><input style={sx.input} type="number" placeholder="$" value={newDebt.total} onChange={(e) => setNewDebt((p) => ({ ...p, total: e.target.value }))} /></div>
-              <div><label style={sx.label}>Cuotas totales</label><input style={sx.input} type="number" placeholder="Ej: 12" value={newDebt.cuotas} onChange={(e) => setNewDebt((p) => ({ ...p, cuotas: e.target.value }))} /></div>
-              <div><label style={sx.label}>Cuotas ya pagadas</label><input style={sx.input} type="number" placeholder="0" value={newDebt.cuotasPagadas} onChange={(e) => setNewDebt((p) => ({ ...p, cuotasPagadas: e.target.value }))} /></div>
+          {/* Link to Deudas tab */}
+          <div style={{ ...sx.card, background: "#1a0f0f", borderColor: "#7f1d1d", marginTop: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
-                <label style={sx.label}>Valor cuota/mes ($)</label>
-                <input style={sx.input} type="number"
-                  placeholder={newDebt.total && newDebt.cuotas ? `≈ ${Math.round(+newDebt.total / +newDebt.cuotas)}` : "$"}
-                  value={newDebt.monthly} onChange={(e) => setNewDebt((p) => ({ ...p, monthly: e.target.value }))} />
+                <div style={{ fontWeight: 700, color: "#ef4444" }}>💳 Deudas en cuotas</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                  {user.debts.length > 0 ? `${user.debts.length} deuda(s) · ${fmt(totalDebtMo)}/mes` : "Sin deudas registradas"}
+                </div>
               </div>
+              <button style={{ background: "#ef4444", color: "#fff", border: "none", borderRadius: 12, padding: "10px 18px", fontWeight: 600, fontSize: 14, cursor: "pointer" }} onClick={() => setTab("deudas")}>Ver →</button>
             </div>
-            <div style={{ fontSize: 11, color: C.dim, marginBottom: 10 }}>
-              Si no sabés el valor exacto de la cuota, se calcula como total ÷ cuotas (sin interés)
-            </div>
-            <button style={{ ...sx.btn(C.red), width: "100%", justifyContent: "center" }} onClick={addDebt}>Agregar deuda</button>
           </div>
         </>
       ) : (
@@ -1012,6 +921,161 @@ function MainApp({ user, state, dispatch }) {
       )}
     </div>
   );
+
+  // ── TAB: DEUDAS ────────────────────────────────────────────────────────────
+  const tabDeudas = () => {
+    const snowball = [...user.debts].sort((a, b) => {
+      const remA = ((a.cuotas || 0) - (a.cuotasPagadas || 0)) * (+a.monthly || 0);
+      const remB = ((b.cuotas || 0) - (b.cuotasPagadas || 0)) * (+b.monthly || 0);
+      return remA - remB;
+    });
+    const totalMensual  = user.debts.reduce((s, d) => s + (+d.monthly || 0), 0);
+    const totalRestante = user.debts.reduce((s, d) => s + (((d.cuotas||0) - (d.cuotasPagadas||0)) * (+d.monthly||0)), 0);
+    const totalOriginal = user.debts.reduce((s, d) => s + (+d.total || 0), 0);
+
+    return (
+      <div>
+        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>💳 Mis deudas</div>
+
+        {user.debts.length === 0 && (
+          <div style={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 16, padding: 32, textAlign: "center", color: "#9ca3af", marginBottom: 12 }}>
+            <div style={{ fontSize: 48, marginBottom: 8 }}>🎉</div>
+            <div style={{ fontWeight: 700, fontSize: 16, color: "#f1f5f9", marginBottom: 4 }}>¡Sin deudas!</div>
+            <div style={{ fontSize: 13 }}>Eso es un logro financiero enorme. Usá ese dinero para construir riqueza.</div>
+          </div>
+        )}
+
+        {user.debts.length > 0 && (
+          <>
+            {/* Resumen */}
+            <div style={{ background: "#1a0f0f", border: "1px solid #7f1d1d", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, color: "#ef4444", marginBottom: 10, fontSize: 13 }}>📊 Resumen total</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
+                <div>
+                  <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 3 }}>DEUDA TOTAL</div>
+                  <div style={{ fontWeight: 700, color: "#ef4444" }}>{fmt(totalOriginal)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 3 }}>CUOTA/MES</div>
+                  <div style={{ fontWeight: 700, color: "#f59e0b" }}>{fmt(totalMensual)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 3 }}>RESTANTE</div>
+                  <div style={{ fontWeight: 700, color: "#f1f5f9" }}>{fmt(totalRestante)}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Plan Bola de Nieve */}
+            <div style={{ background: "#0f1a2e", border: "1px solid #1e3a5f", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, color: "#60a5fa", marginBottom: 6, fontSize: 14 }}>❄️ Plan Bola de Nieve</div>
+              <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 12, lineHeight: 1.6 }}>
+                Pagá el mínimo en todas y volcá todo el dinero extra a la más pequeña. Al liquidarla, sumá esa cuota a la siguiente. El impulso te lleva a liquidarlas todas más rápido.
+              </div>
+              {snowball.map((d, i) => {
+                const restantes = (d.cuotas || 0) - (d.cuotasPagadas || 0);
+                const rem = restantes * (+d.monthly || 0);
+                return (
+                  <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: i < snowball.length - 1 ? "1px solid #1f2937" : "none" }}>
+                    <div style={{ width: 24, height: 24, borderRadius: "50%", background: i === 0 ? "#ef4444" : "#374151", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                      {i === 0 ? "🎯" : i + 1}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: i === 0 ? 700 : 500, color: i === 0 ? "#f1f5f9" : "#9ca3af" }}>{d.name}</div>
+                      <div style={{ fontSize: 11, color: "#6b7280" }}>{restantes} cuotas · {fmt(d.monthly)}/mes</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontWeight: 700, color: i === 0 ? "#ef4444" : "#6b7280", fontSize: 13 }}>{fmt(rem)}</div>
+                      {i === 0 && <div style={{ fontSize: 10, color: "#ef4444" }}>¡Atacar primero!</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Lista de deudas */}
+            <div style={{ fontWeight: 700, fontSize: 14, margin: "16px 0 10px" }}>Detalle por deuda</div>
+            {user.debts.map((d) => {
+              const pagadas   = d.cuotasPagadas || 0;
+              const restantes = (d.cuotas || 0) - pagadas;
+              const pct       = d.cuotas > 0 ? (pagadas / d.cuotas) * 100 : 0;
+              return (
+                <div key={d.id} style={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 16, padding: 16, marginBottom: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>💳 {d.name}</div>
+                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{fmt(d.monthly)}/mes{d.rate > 0 ? ` · ${d.rate}% anual` : ""}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ color: "#ef4444", fontWeight: 700 }}>{fmt(d.total)}</div>
+                      <button onClick={() => dispatch({ type: "UPD", data: { debts: user.debts.filter(x => x.id !== d.id) } })}
+                        style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: 12 }}>✕ quitar</button>
+                    </div>
+                  </div>
+                  <div style={{ background: "#1f2937", borderRadius: 999, overflow: "hidden", height: 8 }}>
+                    <div style={{ height: "100%", borderRadius: 999, width: `${Math.min(pct, 100)}%`, background: pct >= 100 ? "#10b981" : "linear-gradient(90deg,#ef4444,#f59e0b)", transition: "width 0.6s" }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, marginBottom: 10 }}>
+                    <span style={{ fontSize: 11, color: "#9ca3af" }}>{pagadas} de {d.cuotas} cuotas pagadas</span>
+                    <span style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>Quedan {restantes} · {fmt(restantes * (+d.monthly||0))}</span>
+                  </div>
+                  <button
+                    style={{ background: "#10b981", color: "#fff", border: "none", borderRadius: 12, padding: "8px 14px", fontWeight: 600, fontSize: 13, cursor: "pointer", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                    onClick={() => {
+                      const newPaid = pagadas + 1;
+                      if (newPaid >= d.cuotas) {
+                        dispatch({ type: "UPD", data: { debts: user.debts.filter(x => x.id !== d.id) } });
+                      } else {
+                        dispatch({ type: "UPD", data: { debts: user.debts.map(x => x.id === d.id ? { ...x, cuotasPagadas: newPaid } : x) } });
+                      }
+                    }}
+                  >✓ Registrar cuota pagada ({pagadas + 1}/{d.cuotas})</button>
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {/* Agregar deuda */}
+        <div style={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 16, padding: 16, marginTop: 8 }}>
+          <div style={{ fontWeight: 700, marginBottom: 12 }}>+ Agregar deuda en cuotas</div>
+          <input style={{ background: "#1f2937", border: "1px solid #374151", borderRadius: 10, padding: "11px 14px", color: "#f1f5f9", fontSize: 14, width: "100%", outline: "none", boxSizing: "border-box", marginBottom: 8 }}
+            placeholder="Ej: Tarjeta Visa, Préstamo, Muebles 12 cuotas"
+            value={newDebt.name} onChange={(e) => setNewDebt((p) => ({ ...p, name: e.target.value }))} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "#6b7280", display: "block", marginBottom: 5 }}>Monto total ($)</label>
+              <input style={{ background: "#1f2937", border: "1px solid #374151", borderRadius: 10, padding: "11px 14px", color: "#f1f5f9", fontSize: 14, width: "100%", outline: "none", boxSizing: "border-box" }} type="number" placeholder="$" value={newDebt.total} onChange={(e) => setNewDebt((p) => ({ ...p, total: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "#6b7280", display: "block", marginBottom: 5 }}>Cuotas totales</label>
+              <input style={{ background: "#1f2937", border: "1px solid #374151", borderRadius: 10, padding: "11px 14px", color: "#f1f5f9", fontSize: 14, width: "100%", outline: "none", boxSizing: "border-box" }} type="number" placeholder="Ej: 12" value={newDebt.cuotas} onChange={(e) => setNewDebt((p) => ({ ...p, cuotas: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "#6b7280", display: "block", marginBottom: 5 }}>Cuotas ya pagadas</label>
+              <input style={{ background: "#1f2937", border: "1px solid #374151", borderRadius: 10, padding: "11px 14px", color: "#f1f5f9", fontSize: 14, width: "100%", outline: "none", boxSizing: "border-box" }} type="number" placeholder="0" value={newDebt.cuotasPagadas} onChange={(e) => setNewDebt((p) => ({ ...p, cuotasPagadas: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "#6b7280", display: "block", marginBottom: 5 }}>Cuota/mes ($)</label>
+              <input style={{ background: "#1f2937", border: "1px solid #374151", borderRadius: 10, padding: "11px 14px", color: "#f1f5f9", fontSize: 14, width: "100%", outline: "none", boxSizing: "border-box" }} type="number"
+                placeholder={newDebt.total && newDebt.cuotas ? `≈ ${Math.round(+newDebt.total / +newDebt.cuotas)}` : "$"}
+                value={newDebt.monthly} onChange={(e) => setNewDebt((p) => ({ ...p, monthly: e.target.value }))} />
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 10 }}>Si no sabés la cuota exacta, se calcula como total ÷ cuotas</div>
+          <button style={{ background: "#ef4444", color: "#fff", border: "none", borderRadius: 12, padding: "10px 18px", fontWeight: 600, fontSize: 14, cursor: "pointer", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+            onClick={() => {
+              if (!newDebt.name || !newDebt.total || !newDebt.cuotas) return;
+              const cuotas = +newDebt.cuotas;
+              const cuotasPagadas = +newDebt.cuotasPagadas || 0;
+              const monthly = +newDebt.monthly || Math.round(+newDebt.total / cuotas);
+              dispatch({ type: "UPD", data: { debts: [...user.debts, { id: Math.random().toString(36).slice(2) + Date.now().toString(36), name: newDebt.name, total: +newDebt.total, cuotas, cuotasPagadas, monthly, rate: +newDebt.rate || 0 }] } });
+              setNewDebt({ name: "", total: "", cuotas: "", cuotasPagadas: "0", monthly: "", rate: "" });
+            }}>Agregar deuda</button>
+        </div>
+      </div>
+    );
+  };
 
   // ── TAB: DIARIOS ───────────────────────────────────────────────────────────
   const tabDiarios = () => (
@@ -1296,6 +1360,174 @@ function MainApp({ user, state, dispatch }) {
     </div>
   );
 
+  // ── TAB: ASESOR ────────────────────────────────────────────────────────────
+  const tabAsesor = () => {
+    // Diagnóstico personalizado
+    const debtRatio    = user.income > 0 ? (totalDebtMo / user.income) * 100 : 0;
+    const fixedRatio   = user.income > 0 ? (totalFixed / user.income) * 100 : 0;
+    const totalBurden  = debtRatio + fixedRatio;
+    const freeRatio    = 100 - totalBurden;
+    const emGoalLocal  = (totalFixed + totalDebtMo) * user.goals.emMonths;
+    const emPctLocal   = emGoalLocal > 0 ? (user.goals.emBal / emGoalLocal) * 100 : 0;
+    const surplus      = remaining > 0 ? remaining : 0;
+
+    // Distribución recomendada del dinero extra
+    const needsEM      = emPctLocal < 100;
+    const hasDebts     = user.debts.length > 0;
+    const emShare      = needsEM ? 0.4 : 0;
+    const debtShare    = hasDebts ? 0.3 : 0;
+    const invShare     = 1 - emShare - debtShare;
+
+    // Orden bola de nieve
+    const snowball = [...user.debts].sort((a, b) => {
+      const remA = ((a.cuotas||0) - (a.cuotasPagadas||0)) * (+a.monthly||0);
+      const remB = ((b.cuotas||0) - (b.cuotasPagadas||0)) * (+b.monthly||0);
+      return remA - remB;
+    });
+
+    const statusColor = freeRatio > 30 ? "#10b981" : freeRatio > 10 ? "#f59e0b" : "#ef4444";
+    const statusText  = freeRatio > 30 ? "Excelente margen" : freeRatio > 10 ? "Margen ajustado" : "Situación crítica";
+
+    return (
+      <div>
+        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>🤖 Tu asesor financiero</div>
+
+        {/* Diagnóstico */}
+        <div style={{ background: "#111827", border: `1px solid ${statusColor}44`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, color: statusColor, marginBottom: 8 }}>📋 Diagnóstico de tu situación</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+            {[
+              { label: "% en gastos fijos", val: fixedRatio.toFixed(0) + "%", ok: fixedRatio < 50, icon: "🏠" },
+              { label: "% en deudas", val: debtRatio.toFixed(0) + "%", ok: debtRatio < 15, icon: "💳" },
+              { label: "% libre", val: freeRatio.toFixed(0) + "%", ok: freeRatio > 20, icon: "💰" },
+              { label: "Fondo emergencia", val: emPctLocal.toFixed(0) + "%", ok: emPctLocal >= 100, icon: "🛡️" },
+            ].map((m) => (
+              <div key={m.label} style={{ background: "#1f2937", borderRadius: 12, padding: 12 }}>
+                <div style={{ fontSize: 18, marginBottom: 4 }}>{m.icon}</div>
+                <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>{m.label}</div>
+                <div style={{ fontWeight: 800, color: m.ok ? "#10b981" : "#ef4444", fontSize: 16 }}>{m.val}</div>
+              </div>
+            ))}
+          </div>
+          {freeRatio < 10 && (
+            <div style={{ background: "#1a0f0f", borderRadius: 10, padding: 10, fontSize: 12, color: "#fca5a5", lineHeight: 1.5 }}>
+              ⚠️ Más del 90% de tu ingreso está comprometido. Prioridad #1: reducir gastos fijos o aumentar ingresos.
+            </div>
+          )}
+          {freeRatio >= 10 && freeRatio < 30 && (
+            <div style={{ background: "#1c1500", borderRadius: 10, padding: 10, fontSize: 12, color: "#fcd34d", lineHeight: 1.5 }}>
+              ⚡ Tenés margen pero es ajustado. Evitá nuevas deudas y optimizá gastos.
+            </div>
+          )}
+          {freeRatio >= 30 && (
+            <div style={{ background: "#0a1f14", borderRadius: 10, padding: 10, fontSize: 12, color: "#6ee7b7", lineHeight: 1.5 }}>
+              ✅ Tenés buen margen libre. Es el momento ideal para hacer trabajar tu dinero.
+            </div>
+          )}
+        </div>
+
+        {/* Qué hacer con dinero extra */}
+        {surplus > 0 && (
+          <div style={{ background: "#0a1f14", border: "1px solid #065f46", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+            <div style={{ fontWeight: 700, color: "#10b981", marginBottom: 4, fontSize: 14 }}>💡 ¿Qué hacés con {fmt(surplus)} disponibles?</div>
+            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 12 }}>Distribución recomendada según tu situación actual:</div>
+            {[
+              needsEM && { label: "🛡️ Fondo de emergencia", pct: 40, color: "#3b82f6", reason: "Todavía no alcanzaste tu colchón de seguridad" },
+              hasDebts && { label: "💳 Pago extra de deudas", pct: 30, color: "#ef4444", reason: snowball[0] ? `Atacá primero: ${snowball[0].name}` : "Deuda más pequeña primero (bola de nieve)" },
+              { label: "📈 Inversiones", pct: Math.round(invShare * 100), color: "#10b981", reason: "El dinero que no trabajas pierde valor" },
+            ].filter(Boolean).map((item) => (
+              <div key={item.label} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+                  <span style={{ fontWeight: 600, color: item.color }}>{item.label}</span>
+                  <span style={{ fontWeight: 700 }}>{fmt(surplus * item.pct / 100)} <span style={{ color: "#6b7280", fontWeight: 400 }}>({item.pct}%)</span></span>
+                </div>
+                <div style={{ background: "#1f2937", borderRadius: 999, overflow: "hidden", height: 6 }}>
+                  <div style={{ height: "100%", borderRadius: 999, width: `${item.pct}%`, background: item.color }} />
+                </div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginTop: 3 }}>{item.reason}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Opciones de inversión */}
+        <div style={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, color: "#10b981", marginBottom: 4, fontSize: 14 }}>📈 ¿En qué invertir?</div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 12 }}>De menor a mayor riesgo. Siempre educate antes de invertir.</div>
+          {[
+            { icon: "🏦", name: "Plazo Fijo / FCI", risk: "Bajo", desc: "Ideal para el fondo de emergencia. En Argentina buscá FCI Money Market o Plazo Fijo UVA para cubrirte de la inflación.", where: "Banco, Mercado Pago, Ualá, Naranja X" },
+            { icon: "📊", name: "CEDEARs", risk: "Medio", desc: "Comprás acciones de empresas USA (Apple, Google, Tesla) desde Argentina, en pesos. La mejor protección contra la inflación y el dólar.", where: "Invertir Online, Bull Market, PPI, Balanz" },
+            { icon: "💵", name: "Dólar / Stablecoins", risk: "Medio", desc: "Dolarizá parte de tus ahorros. Las stablecoins (USDT, USDC) son ideales si no querés billetes físicos.", where: "Lemon Cash, Belo, Ripio, exchange local" },
+            { icon: "🏠", name: "Ladrillo / propiedades", risk: "Bajo-Medio", desc: "La inversión clásica en Argentina. Requiere más capital inicial pero es muy sólida a largo plazo.", where: "Mercado Libre Inmuebles, Zonaprop, argenprop" },
+            { icon: "🚀", name: "Cripto (BTC, ETH)", risk: "Alto", desc: "Alta volatilidad. Solo invertí lo que estás dispuesto a perder. Para perfiles agresivos con horizonte largo.", where: "Lemon Cash, Binance, Ripio, Belo" },
+            { icon: "🧠", name: "Invertí en vos mismo", risk: "Cero", desc: "El mejor retorno. Un curso, una carrera, una habilidad: multiplicás tu capacidad de generar ingresos.", where: "Udemy, Coursera, universidades, YouTube" },
+          ].map((inv) => (
+            <div key={inv.name} style={{ padding: "12px 0", borderBottom: "1px solid #1f2937" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                <span style={{ fontSize: 24, flexShrink: 0 }}>{inv.icon}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{inv.name}</span>
+                    <span style={{ fontSize: 10, background: inv.risk === "Bajo" ? "#065f46" : inv.risk === "Medio" || inv.risk === "Bajo-Medio" ? "#78350f" : "#7f1d1d", color: inv.risk === "Bajo" ? "#6ee7b7" : inv.risk === "Medio" || inv.risk === "Bajo-Medio" ? "#fcd34d" : "#fca5a5", borderRadius: 6, padding: "2px 7px", fontWeight: 600 }}>
+                      Riesgo: {inv.risk}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.5, marginBottom: 4 }}>{inv.desc}</div>
+                  <div style={{ fontSize: 11, color: "#3b82f6" }}>📍 Dónde: {inv.where}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Cómo generar más ingresos */}
+        <div style={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, color: "#f59e0b", marginBottom: 4, fontSize: 14 }}>💼 ¿Cómo ganar más dinero?</div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 12 }}>La mejor estrategia financiera es aumentar tus ingresos mientras controlás los gastos.</div>
+          {[
+            { icon: "💻", label: "Freelance / servicios online", desc: "Programación, diseño, redacción, marketing, traducción. Plataformas: Workana, Fiverr, Upwork, LinkedIn." },
+            { icon: "📦", label: "Compra-venta", desc: "Comprá en ferias, fabricantes o importadores y vendé con margen. Mercado Libre es el canal más potente." },
+            { icon: "📱", label: "Creación de contenido", desc: "YouTube, Instagram, TikTok: monetización, sponsors, afiliados. Requiere tiempo pero el ingreso es pasivo a largo plazo." },
+            { icon: "🏫", label: "Dar clases / tutorías", desc: "Lo que sabés vale dinero. Clases particulares, talleres online, cursos grabados en Hotmart o Udemy." },
+            { icon: "🔧", label: "Servicios locales", desc: "Plomería, electricidad, pintura, limpieza, delivery. Alta demanda y entrada inmediata." },
+            { icon: "📊", label: "Invertir en capacitación", desc: "Una nueva habilidad puede duplicar tu sueldo. Identificá qué habilidades escasean en tu área y aprendelas." },
+          ].map((item) => (
+            <div key={item.label} style={{ display: "flex", gap: 10, padding: "10px 0", borderBottom: "1px solid #1f2937" }}>
+              <span style={{ fontSize: 22, flexShrink: 0 }}>{item.icon}</span>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{item.label}</div>
+                <div style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.5 }}>{item.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Tips de libros */}
+        <div style={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, color: "#8b5cf6", marginBottom: 12, fontSize: 14 }}>📚 Sabiduría de los mejores libros</div>
+          {[
+            { icon: "🏺", from: "El Hombre Más Rico de Babilonia", tip: "Paga primero a ti mismo: guardá el 10% de todo lo que ganás ANTES de gastar. Si vivís solo con el 90%, te adaptás. Si esperás 'lo que sobre', nunca habrá nada." },
+            { icon: "📊", from: "Regla 50/30/20 — Elizabeth Warren", tip: "50% necesidades, 30% gustos, 20% ahorro e inversión. El esquema más sencillo y efectivo para ordenar el dinero sin privarte de vivir." },
+            { icon: "🏔️", from: "Total Money Makeover — Dave Ramsey", tip: "Bola de Nieve: listá deudas de menor a mayor. Pagá el mínimo en todas y volcá todo el excedente a la más pequeña. El impulso psicológico es real y poderoso." },
+            { icon: "🧠", from: "Padre Rico, Padre Pobre — Kiyosaki", tip: "Un activo te mete dinero en el bolsillo. Un pasivo te lo saca. El auto, la ropa cara, la TV: pasivos. Una propiedad que alquilás, inversiones, un negocio: activos." },
+            { icon: "⚡", from: "Psicología del Dinero — Morgan Housel", tip: "El ahorro no requiere un ingreso alto, requiere controlar el ego. Cada peso no gastado es un peso que se multiplica en el tiempo." },
+            { icon: "🔄", from: "I Will Teach You to Be Rich — Ramit Sethi", tip: "Automatizá tus ahorros el mismo día que cobrás. Si el dinero nunca llega a tu cuenta de gastos, no lo vas a gastar." },
+          ].map((t, i) => (
+            <div key={i} style={{ padding: "12px 0", borderBottom: i < 5 ? "1px solid #1f2937" : "none" }}>
+              <div style={{ display: "flex", gap: 10 }}>
+                <span style={{ fontSize: 24, flexShrink: 0 }}>{t.icon}</span>
+                <div>
+                  <div style={{ fontSize: 10, color: "#8b5cf6", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>{t.from}</div>
+                  <div style={{ fontSize: 13, color: "#d1d5db", lineHeight: 1.6 }}>{t.tip}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   // ── RENDER PRINCIPAL ────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: "'Inter',-apple-system,sans-serif", background: C.bg, minHeight: "100vh", color: C.text, display: "flex", flexDirection: "column", maxWidth: 440, margin: "0 auto" }}>
@@ -1352,8 +1584,8 @@ function MainApp({ user, state, dispatch }) {
         {tab === "inicio"  && tabInicio()}
         {tab === "fijos"   && tabFijos()}
         {tab === "diarios" && tabDiarios()}
-        {tab === "metas"   && tabMetas()}
-        {tab === "tips"    && tabTips()}
+        {tab === "deudas"  && tabDeudas()}
+        {tab === "asesor"  && tabAsesor()}
       </div>
 
       {/* Bottom navigation */}
