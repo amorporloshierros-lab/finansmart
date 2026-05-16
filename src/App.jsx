@@ -559,6 +559,9 @@ function MainApp({ user, state, dispatch }) {
     }, {})
   );
   const [newDebt, setNewDebt] = useState({ name: "", total: "", cuotas: "", cuotasPagadas: "0", monthly: "", rate: "" });
+  const [aiMessages, setAiMessages] = useState([]);
+  const [aiInput, setAiInput]       = useState("");
+  const [aiLoading, setAiLoading]   = useState(false);
 
   // ── Computed ──
   const totalFixed      = useMemo(() => user.fixedExpenses.reduce((s, e) => s + e.amount, 0), [user.fixedExpenses]);
@@ -1361,6 +1364,26 @@ function MainApp({ user, state, dispatch }) {
   );
 
   // ── TAB: ASESOR ────────────────────────────────────────────────────────────
+  const askAI = async (question) => {
+    if (!question.trim() || aiLoading) return;
+    const q = question.trim();
+    setAiMessages((prev) => [...prev, { role: "user", text: q }]);
+    setAiInput("");
+    setAiLoading(true);
+    try {
+      const res = await fetch("/api/advisor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userData: user, question: q }),
+      });
+      const data = await res.json();
+      setAiMessages((prev) => [...prev, { role: "ai", text: data.answer }]);
+    } catch {
+      setAiMessages((prev) => [...prev, { role: "ai", text: "❌ Error al conectar. Verificá tu conexión e intentá de nuevo." }]);
+    }
+    setAiLoading(false);
+  };
+
   const tabAsesor = () => {
     // Diagnóstico personalizado
     const debtRatio    = user.income > 0 ? (totalDebtMo / user.income) * 100 : 0;
@@ -1390,7 +1413,77 @@ function MainApp({ user, state, dispatch }) {
 
     return (
       <div>
-        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>🤖 Tu asesor financiero</div>
+        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>🤖 Tu asesor financiero</div>
+        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>Preguntale lo que quieras — conoce todos tus números reales</div>
+
+        {/* Chat IA */}
+        <div style={{ background: "#111827", border: "1px solid #1e3a5f", borderRadius: 16, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#60a5fa", marginBottom: 12 }}>💬 Consultor IA — Gemini</div>
+
+          {/* Sugerencias rápidas */}
+          {aiMessages.length === 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 8 }}>Preguntas frecuentes:</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {[
+                  "¿Cómo liquido mis deudas más rápido?",
+                  "¿En qué debería invertir con lo que me sobra?",
+                  "¿Cuánto debería ahorrar por mes?",
+                  "¿Estoy gastando demasiado en algo?",
+                  "¿Cuándo puedo armar mi fondo de emergencia?",
+                ].map((s) => (
+                  <button key={s} onClick={() => askAI(s)}
+                    style={{ background: "#1f2937", border: "1px solid #374151", borderRadius: 20, padding: "6px 12px", color: "#9ca3af", fontSize: 11, cursor: "pointer" }}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Mensajes */}
+          {aiMessages.length > 0 && (
+            <div style={{ maxHeight: 380, overflowY: "auto", marginBottom: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+              {aiMessages.map((m, i) => (
+                <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", flexDirection: m.role === "user" ? "row-reverse" : "row" }}>
+                  <div style={{ fontSize: 20, flexShrink: 0 }}>{m.role === "user" ? "👤" : "🤖"}</div>
+                  <div style={{
+                    background: m.role === "user" ? "#1e3a5f" : "#1f2937",
+                    borderRadius: m.role === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
+                    padding: "10px 14px", maxWidth: "85%",
+                    fontSize: 13, color: "#f1f5f9", lineHeight: 1.6, whiteSpace: "pre-wrap"
+                  }}>{m.text}</div>
+                </div>
+              ))}
+              {aiLoading && (
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 20 }}>🤖</span>
+                  <div style={{ background: "#1f2937", borderRadius: "16px 16px 16px 4px", padding: "10px 14px", fontSize: 13, color: "#6b7280" }}>
+                    Analizando tus finanzas...
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Input */}
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              style={{ background: "#1f2937", border: "1px solid #374151", borderRadius: 12, padding: "10px 14px", color: "#f1f5f9", fontSize: 13, flex: 1, outline: "none" }}
+              placeholder="Preguntale algo sobre tus finanzas..."
+              value={aiInput}
+              onChange={(e) => setAiInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && askAI(aiInput)}
+              disabled={aiLoading}
+            />
+            <button
+              onClick={() => askAI(aiInput)}
+              disabled={aiLoading || !aiInput.trim()}
+              style={{ background: aiLoading ? "#374151" : "#3b82f6", color: "#fff", border: "none", borderRadius: 12, padding: "10px 16px", fontWeight: 700, fontSize: 16, cursor: aiLoading ? "default" : "pointer" }}>
+              {aiLoading ? "..." : "→"}
+            </button>
+          </div>
+        </div>
 
         {/* Diagnóstico */}
         <div style={{ background: "#111827", border: `1px solid ${statusColor}44`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
