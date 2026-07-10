@@ -99,36 +99,40 @@ const toMonthly = (amount, freq = "mensual") =>
   Math.round((+amount || 0) * (PAY_FREQ[freq]?.factor || 1));
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WORK SCHEDULE — días laborales
+// WORK SCHEDULE — días laborales (selector libre por día)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const WORK_SCHEDULES = {
-  "lun-vie": { label: "Lun–Vie",    short: "L–V",  days: [1,2,3,4,5],     daysPerWeek: 5 },
-  "lun-sab": { label: "Lun–Sáb",   short: "L–S",  days: [1,2,3,4,5,6],   daysPerWeek: 6 },
-  "todos":   { label: "Todos",      short: "7d",   days: [0,1,2,3,4,5,6], daysPerWeek: 7 },
-};
+// Etiquetas de cada día (índice 0=Dom … 6=Sáb)
+const DAY_LABELS = ["D","L","M","X","J","V","S"];
 
-// Cuenta los días hábiles del mes actual según el esquema laboral
-function countWorkingDays(schedKey = "lun-vie") {
-  const s = WORK_SCHEDULES[schedKey] || WORK_SCHEDULES["lun-vie"];
+// Migración: convierte el valor viejo (string) al nuevo formato (array de números)
+function normSched(v) {
+  if (Array.isArray(v)) return v.length > 0 ? v : [1,2,3,4,5];
+  if (v === "lun-sab") return [1,2,3,4,5,6];
+  if (v === "todos")   return [0,1,2,3,4,5,6];
+  return [1,2,3,4,5]; // default lun-vie
+}
+
+// Cuenta los días hábiles del mes actual para los días seleccionados
+function countWorkingDays(days = [1,2,3,4,5]) {
+  const d = normSched(days);
   const now = new Date();
   const y = now.getFullYear(), mo = now.getMonth();
   const total = new Date(y, mo + 1, 0).getDate();
   let n = 0;
-  for (let d = 1; d <= total; d++) {
-    if (s.days.includes(new Date(y, mo, d).getDay())) n++;
+  for (let dd = 1; dd <= total; dd++) {
+    if (d.includes(new Date(y, mo, dd).getDay())) n++;
   }
   return n;
 }
 
 // Calcula ingreso de ESTE MES EXACTO usando días hábiles reales (no promedio)
-function toMonthlyExact(income, freq, schedKey = "lun-vie") {
+function toMonthlyExact(income, freq, days = [1,2,3,4,5]) {
   if (freq === "mensual") return Math.round(+income);
-  const s = WORK_SCHEDULES[schedKey] || WORK_SCHEDULES["lun-vie"];
-  // cuántos días laborales hay en el período de pago
-  const daysPerPeriod = freq === "semanal" ? s.daysPerWeek : s.daysPerWeek * 2;
+  const d = normSched(days);
+  const daysPerPeriod = freq === "semanal" ? d.length : d.length * 2;
   const dailyRate = (+income) / daysPerPeriod;
-  return Math.round(dailyRate * countWorkingDays(schedKey));
+  return Math.round(dailyRate * countWorkingDays(d));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -189,7 +193,7 @@ const mkUser = (name, income, payFrequency = "mensual") => ({
   id: uid(), name,
   income: +income,          // monto POR PERÍODO (semana / quincena / mes)
   payFrequency,             // "semanal" | "quincenal" | "mensual"
-  workSchedule: "lun-vie",  // "lun-vie" | "lun-sab" | "todos"
+  workSchedule: [1,2,3,4,5],  // array de días (0=Dom,1=Lun…6=Sáb)
   salaryHistory: [],        // [{ id, date, amount, freq, note }]
   fixedExpenses: [], debts: [], dailyExpenses: [],
   extraIncome: [],          // [{ id, amount, desc, date }]
@@ -375,7 +379,7 @@ function LoginScreen({ state, dispatch }) {
 function OnboardingScreen({ user, dispatch }) {
   const [step, setStep]       = useState(0);
   const [payFreq, setPayFreq] = useState(user.payFrequency || "mensual");
-  const [workSched, setWorkSched] = useState(user.workSchedule || "lun-vie");
+  const [workSched, setWorkSched] = useState(normSched(user.workSchedule));
   const [incomeVal, setIncomeVal] = useState(user.income > 0 ? user.income.toString() : "");
   const [fixed, setFixed]     = useState(() => FIXED_TYPES.reduce((a, t) => ({ ...a, [t.id]: "" }), {}));
   const [debts, setDebts]     = useState([]);
@@ -454,15 +458,21 @@ function OnboardingScreen({ user, dispatch }) {
 
               {payFreq !== "mensual" && (
                 <>
-                  <label style={sx.label}>¿Qué días trabajás?</label>
-                  <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-                    {Object.entries(WORK_SCHEDULES).map(([key, s]) => (
-                      <button key={key} onClick={() => setWorkSched(key)}
-                        style={{ flex: 1, padding: "10px 4px", borderRadius: 10, border: `2px solid ${workSched === key ? C.blue : "#374151"}`, background: workSched === key ? "#3b82f622" : "transparent", color: workSched === key ? C.blue : C.muted, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
-                        {s.label}
-                        <div style={{ fontSize: 10, fontWeight: 400, marginTop: 2, color: workSched === key ? C.blue : C.dim }}>{s.daysPerWeek} días/sem</div>
-                      </button>
-                    ))}
+                  <label style={sx.label}>¿Qué días trabajás? <span style={{ color: C.dim, fontWeight: 400 }}>({workSched.length} días/sem)</span></label>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+                    {DAY_LABELS.map((lbl, idx) => {
+                      const on = workSched.includes(idx);
+                      return (
+                        <button key={idx} onClick={() => {
+                          setWorkSched(prev => on
+                            ? prev.filter(d => d !== idx).length > 0 ? prev.filter(d => d !== idx) : prev
+                            : [...prev, idx].sort((a,b)=>a-b));
+                        }}
+                          style={{ flex: 1, padding: "10px 2px", borderRadius: 10, border: `2px solid ${on ? C.blue : "#374151"}`, background: on ? "#3b82f622" : "transparent", color: on ? C.blue : C.dim, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+                          {lbl}
+                        </button>
+                      );
+                    })}
                   </div>
                 </>
               )}
@@ -473,10 +483,10 @@ function OnboardingScreen({ user, dispatch }) {
                 value={incomeVal} onChange={(e) => setIncomeVal(e.target.value)} />
 
               {+incomeVal > 0 && (() => {
-                const sched = WORK_SCHEDULES[workSched] || WORK_SCHEDULES["lun-vie"];
-                const daysPerPeriod = payFreq === "semanal" ? sched.daysPerWeek : payFreq === "quincenal" ? sched.daysPerWeek * 2 : 30;
+                const schedDays = normSched(workSched);
+                const daysPerPeriod = payFreq === "semanal" ? schedDays.length : payFreq === "quincenal" ? schedDays.length * 2 : 30;
                 const dailyRate = payFreq === "mensual" ? toMonthly(+incomeVal, payFreq) / 30 : +incomeVal / daysPerPeriod;
-                const workDays = countWorkingDays(workSched);
+                const workDays = countWorkingDays(schedDays);
                 const thisMon = payFreq === "mensual" ? toMonthly(+incomeVal, payFreq) : Math.round(dailyRate * workDays);
                 const avgMon = toMonthly(+incomeVal, payFreq);
                 return (
@@ -718,8 +728,7 @@ function MainApp({ user, state, dispatch }) {
   // Frecuencia de cobro → conversión a mensual para TODOS los cálculos
   const userFreq        = user.payFrequency || "mensual";
   const freqInfo        = PAY_FREQ[userFreq] || PAY_FREQ.mensual;
-  const userSched       = user.workSchedule || "lun-vie";
-  const schedInfo       = WORK_SCHEDULES[userSched] || WORK_SCHEDULES["lun-vie"];
+  const userSched       = useMemo(() => normSched(user.workSchedule), [user.workSchedule]);
   const workDaysThisMon = useMemo(() => countWorkingDays(userSched), [userSched]);
   // Promedio anual (para score / 50-30-20 / proyecciones — estable)
   const monthlyIncome   = useMemo(() => toMonthly(user.income, userFreq), [user.income, userFreq]);
@@ -728,9 +737,9 @@ function MainApp({ user, state, dispatch }) {
   // Tarifa diaria laboral
   const dailyRate       = useMemo(() => {
     if (userFreq === "mensual") return Math.round(monthlyIncome / 30);
-    const daysPerPeriod = userFreq === "semanal" ? schedInfo.daysPerWeek : schedInfo.daysPerWeek * 2;
+    const daysPerPeriod = userFreq === "semanal" ? userSched.length : userSched.length * 2;
     return Math.round(user.income / daysPerPeriod);
-  }, [user.income, userFreq, schedInfo]);
+  }, [user.income, userFreq, userSched]);
 
   const totalFixed      = useMemo(() => user.fixedExpenses.reduce((s, e) => s + e.amount, 0), [user.fixedExpenses]);
   const totalDebtMo     = useMemo(() => user.debts.reduce((s, d) => s + (+d.monthly || 0), 0), [user.debts]);
@@ -928,14 +937,14 @@ function MainApp({ user, state, dispatch }) {
           <div style={{ fontSize: 12, fontWeight: 700, color: "#60a5fa" }}>💼 Tu salario desglosado</div>
           <div style={{ display: "flex", gap: 6 }}>
             <span style={{ background: "#1e3a5f", color: "#60a5fa", borderRadius: 8, padding: "3px 8px", fontSize: 11, fontWeight: 600 }}>{freqInfo.label}</span>
-            {userFreq !== "mensual" && <span style={{ background: "#1e3a5f", color: "#60a5fa", borderRadius: 8, padding: "3px 8px", fontSize: 11, fontWeight: 600 }}>{schedInfo.label}</span>}
+            {userFreq !== "mensual" && <span style={{ background: "#1e3a5f", color: "#60a5fa", borderRadius: 8, padding: "3px 8px", fontSize: 11, fontWeight: 600 }}>{userSched.map(d => DAY_LABELS[d]).join("·")}</span>}
           </div>
         </div>
 
         {userFreq !== "mensual" && (
           <div style={{ background: "#1e3a5f", borderRadius: 10, padding: "10px 14px", marginBottom: 10 }}>
             <div style={{ fontSize: 11, color: "#93c5fd", marginBottom: 2 }}>
-              Este mes ({new Date().toLocaleString("es-AR",{month:"long"})}) — {workDaysThisMon} días hábiles {schedInfo.label}
+              Este mes ({new Date().toLocaleString("es-AR",{month:"long"})}) — {workDaysThisMon} días hábiles ({userSched.map(d => DAY_LABELS[d]).join("·")})
             </div>
             <div style={{ fontSize: 22, fontWeight: 900, color: "#f1f5f9" }}>{fmt(monthlyIncomeExact)}</div>
             <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>
@@ -1892,16 +1901,23 @@ function MainApp({ user, state, dispatch }) {
               {/* Días laborales */}
               {freqEdit !== "mensual" && (
                 <>
-                  <label style={sx.label}>Días que trabajás</label>
-                  <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-                    {Object.entries(WORK_SCHEDULES).map(([key, s]) => (
-                      <button key={key}
-                        onClick={() => dispatch({ type: "UPD", data: { workSchedule: key } })}
-                        style={{ flex: 1, padding: "8px 4px", borderRadius: 10, border: `2px solid ${userSched === key ? C.blue : "#374151"}`, background: userSched === key ? "#3b82f622" : "transparent", color: userSched === key ? C.blue : C.muted, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
-                        {s.label}
-                        <div style={{ fontSize: 9, fontWeight: 400, marginTop: 1, color: userSched === key ? C.blue : C.dim }}>{s.daysPerWeek}d/sem</div>
-                      </button>
-                    ))}
+                  <label style={sx.label}>Días que trabajás <span style={{ color: C.dim, fontWeight: 400 }}>({userSched.length} días/sem)</span></label>
+                  <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
+                    {DAY_LABELS.map((lbl, idx) => {
+                      const on = userSched.includes(idx);
+                      return (
+                        <button key={idx}
+                          onClick={() => {
+                            const next = on
+                              ? userSched.filter(d => d !== idx).length > 0 ? userSched.filter(d => d !== idx) : userSched
+                              : [...userSched, idx].sort((a,b)=>a-b);
+                            dispatch({ type: "UPD", data: { workSchedule: next } });
+                          }}
+                          style={{ flex: 1, padding: "8px 2px", borderRadius: 10, border: `2px solid ${on ? C.blue : "#374151"}`, background: on ? "#3b82f622" : "transparent", color: on ? C.blue : C.dim, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+                          {lbl}
+                        </button>
+                      );
+                    })}
                   </div>
                 </>
               )}
