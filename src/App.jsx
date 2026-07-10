@@ -85,6 +85,20 @@ const TIPS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PAY FREQUENCY
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PAY_FREQ = {
+  semanal:   { label: "Semanal",   short: "sem.",  factor: 4.333,  perLabel: "por semana",    weeksPerYear: 52 },
+  quincenal: { label: "Quincenal", short: "c/15d", factor: 2.167,  perLabel: "cada 15 días",  weeksPerYear: 26 },
+  mensual:   { label: "Mensual",   short: "mes",   factor: 1,      perLabel: "por mes",        weeksPerYear: 12 },
+};
+
+// Convierte el ingreso del período al equivalente mensual
+const toMonthly = (amount, freq = "mensual") =>
+  Math.round((+amount || 0) * (PAY_FREQ[freq]?.factor || 1));
+
+// ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -105,13 +119,14 @@ function exportJSON(state) {
   a.click();
 }
 
-function calcScore(user) {
+function calcScore(user, monthlyIncome) {
+  const inc        = monthlyIncome ?? toMonthly(user.income, user.payFrequency);
   const totalFixed = user.fixedExpenses.reduce((s, e) => s + e.amount, 0);
   const totalDebt  = user.debts.reduce((s, d) => s + (+d.monthly || 0), 0);
-  const savingsRate = user.income > 0
-    ? ((user.income - totalFixed - totalDebt) / user.income) * 100 : 0;
-  const debtRatio  = user.income > 0 ? (totalDebt / user.income) * 100 : 0;
-  const fixedRatio = user.income > 0 ? (totalFixed / user.income) * 100 : 0;
+  const savingsRate = inc > 0
+    ? ((inc - totalFixed - totalDebt) / inc) * 100 : 0;
+  const debtRatio  = inc > 0 ? (totalDebt / inc) * 100 : 0;
+  const fixedRatio = inc > 0 ? (totalFixed / inc) * 100 : 0;
   const totalExp   = totalFixed + totalDebt;
   const emGoal     = totalExp * user.goals.emMonths;
   const emPct      = emGoal > 0 ? (user.goals.emBal / emGoal) * 100 : 0;
@@ -137,10 +152,13 @@ function calcScore(user) {
 // STATE — REDUCER
 // ─────────────────────────────────────────────────────────────────────────────
 
-const mkUser = (name, income) => ({
-  id: uid(), name, income: +income,
+const mkUser = (name, income, payFrequency = "mensual") => ({
+  id: uid(), name,
+  income: +income,          // monto POR PERÍODO (semana / quincena / mes)
+  payFrequency,             // "semanal" | "quincenal" | "mensual"
+  salaryHistory: [],        // [{ id, date, amount, freq, note }]
   fixedExpenses: [], debts: [], dailyExpenses: [],
-  extraIncome: [],   // [{ id, amount, desc, date }]
+  extraIncome: [],          // [{ id, amount, desc, date }]
   goals: { emMonths: 6, invPct: 20, emBal: 0, invBal: 0 },
   onboarded: false,
   createdAt: new Date().toLocaleDateString("es-AR"),
@@ -321,14 +339,17 @@ function LoginScreen({ state, dispatch }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function OnboardingScreen({ user, dispatch }) {
-  const [step, setStep]     = useState(0);
-  const [fixed, setFixed]   = useState(() => FIXED_TYPES.reduce((a, t) => ({ ...a, [t.id]: "" }), {}));
-  const [debts, setDebts]   = useState([]);
+  const [step, setStep]       = useState(0);
+  const [payFreq, setPayFreq] = useState(user.payFrequency || "mensual");
+  const [incomeVal, setIncomeVal] = useState(user.income > 0 ? user.income.toString() : "");
+  const [fixed, setFixed]     = useState(() => FIXED_TYPES.reduce((a, t) => ({ ...a, [t.id]: "" }), {}));
+  const [debts, setDebts]     = useState([]);
   const [newDebt, setNewDebt] = useState({ name: "", total: "", cuotas: "", cuotasPagadas: "0", monthly: "", rate: "" });
-  const [goals, setGoals]   = useState({ emMonths: 6, invPct: 20, emBal: "0", invBal: "0" });
+  const [goals, setGoals]     = useState({ emMonths: 6, invPct: 20, emBal: "0", invBal: "0" });
 
+  const obMonthly  = toMonthly(+incomeVal || user.income, payFreq);
   const totalFixed = Object.values(fixed).reduce((s, v) => s + (+v || 0), 0);
-  const STEPS = ["Gastos fijos", "Deudas", "Tus metas"];
+  const STEPS = ["Ingresos", "Gastos fijos", "Deudas", "Tus metas"];
 
   const addDebt = () => {
     if (!newDebt.name || !newDebt.total || !newDebt.cuotas) return;
@@ -343,7 +364,13 @@ function OnboardingScreen({ user, dispatch }) {
     const fixedExpenses = FIXED_TYPES.filter((t) => +fixed[t.id] > 0).map((t) => ({
       id: uid(), typeId: t.id, label: t.label, icon: t.icon, amount: +fixed[t.id], group: t.group,
     }));
-    dispatch({ type: "ONBOARD", data: { fixedExpenses, debts, goals: { emMonths: goals.emMonths, invPct: goals.invPct, emBal: +goals.emBal || 0, invBal: +goals.invBal || 0 } } });
+    const newIncome = +incomeVal || user.income;
+    dispatch({ type: "ONBOARD", data: {
+      income: newIncome,
+      payFrequency: payFreq,
+      fixedExpenses, debts,
+      goals: { emMonths: goals.emMonths, invPct: goals.invPct, emBal: +goals.emBal || 0, invBal: +goals.invBal || 0 }
+    }});
   };
 
   const wrap = { fontFamily: "'Inter',-apple-system,sans-serif", background: C.bg, minHeight: "100vh", color: C.text };
@@ -366,8 +393,57 @@ function OnboardingScreen({ user, dispatch }) {
 
       <div style={{ padding: "20px 20px 100px" }}>
 
-        {/* STEP 0 — Gastos fijos */}
+        {/* STEP 0 — Ingresos + frecuencia */}
         {step === 0 && (
+          <div>
+            <div style={{ ...sx.card, background: "#0f1a2e", borderColor: "#1e3a5f", marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#60a5fa" }}>💡 ¿Cómo cobrás tu sueldo?</div>
+              <div style={{ fontSize: 13, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
+                Muchos cobran por semana o cada 15 días. Ingresá el monto POR PERÍODO y FinanSmart lo convierte automáticamente a mensual para todos los cálculos.
+              </div>
+            </div>
+
+            <div style={sx.card}>
+              <div style={{ fontWeight: 700, marginBottom: 14 }}>💰 Tu ingreso</div>
+              <label style={sx.label}>¿Cada cuánto cobrás?</label>
+              <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                {Object.entries(PAY_FREQ).map(([key, f]) => (
+                  <button key={key} onClick={() => setPayFreq(key)}
+                    style={{ flex: 1, padding: "10px 4px", borderRadius: 10, border: `2px solid ${payFreq === key ? C.green : "#374151"}`, background: payFreq === key ? "#10b98122" : "transparent", color: payFreq === key ? C.green : C.muted, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+                    {f.label}
+                    <div style={{ fontSize: 10, fontWeight: 400, marginTop: 2, color: payFreq === key ? C.green : C.dim }}>{f.perLabel}</div>
+                  </button>
+                ))}
+              </div>
+
+              <label style={sx.label}>¿Cuánto cobrás {PAY_FREQ[payFreq].perLabel}?</label>
+              <input style={{ ...sx.input, marginBottom: 8 }} type="number"
+                placeholder={`Ej: ${payFreq === "semanal" ? "100000" : payFreq === "quincenal" ? "200000" : "400000"}`}
+                value={incomeVal} onChange={(e) => setIncomeVal(e.target.value)} />
+
+              {+incomeVal > 0 && (
+                <div style={{ background: "#0a1f14", borderRadius: 10, padding: 12, marginTop: 4 }}>
+                  <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>Tu salario desglosado</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
+                    {[
+                      { label: "Por día",    val: toMonthly(+incomeVal, payFreq) / 30 },
+                      { label: "Por semana", val: toMonthly(+incomeVal, payFreq) / 4.333 },
+                      { label: "Por mes",    val: toMonthly(+incomeVal, payFreq) },
+                    ].map((m) => (
+                      <div key={m.label} style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 10, color: C.dim, marginBottom: 2 }}>{m.label}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.green }}>{fmt(Math.round(m.val))}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* STEP 1 — Gastos fijos */}
+        {step === 1 && (
           <div>
             <div style={{ ...sx.card, background: "#0f1a2e", borderColor: "#1e3a5f", marginBottom: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#60a5fa" }}>💡 ¿Por qué esto importa?</div>
@@ -398,16 +474,16 @@ function OnboardingScreen({ user, dispatch }) {
               </div>
               <div style={{ ...sx.row, marginTop: 6 }}>
                 <span style={{ fontSize: 12, color: C.dim }}>% del ingreso</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: user.income > 0 && totalFixed / user.income > 0.7 ? C.red : user.income > 0 && totalFixed / user.income > 0.5 ? C.amber : C.green }}>
-                  {user.income > 0 ? ((totalFixed / user.income) * 100).toFixed(0) : 0}%
+                <span style={{ fontSize: 13, fontWeight: 700, color: user.income > 0 && totalFixed / (toMonthly(user.income, user.payFrequency||"mensual")) > 0.7 ? C.red : user.income > 0 && totalFixed / (toMonthly(user.income, user.payFrequency||"mensual")) > 0.5 ? C.amber : C.green }}>
+                  {user.income > 0 ? ((totalFixed / (toMonthly(user.income, user.payFrequency||"mensual"))) * 100).toFixed(0) : 0}%
                 </span>
               </div>
             </div>
           </div>
         )}
 
-        {/* STEP 1 — Deudas */}
-        {step === 1 && (
+        {/* STEP 2 — Deudas */}
+        {step === 2 && (
           <div>
             <div style={{ ...sx.card, background: "#0f1a2e", borderColor: "#1e3a5f", marginBottom: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#60a5fa" }}>💡 Método Bola de Nieve (Dave Ramsey)</div>
@@ -470,8 +546,8 @@ function OnboardingScreen({ user, dispatch }) {
           </div>
         )}
 
-        {/* STEP 2 — Metas */}
-        {step === 2 && (
+        {/* STEP 3 — Metas */}
+        {step === 3 && (
           <div>
             <div style={{ ...sx.card, background: "#0f1a2e", borderColor: "#1e3a5f", marginBottom: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#60a5fa" }}>💡 Pagá primero a vos mismo</div>
@@ -505,7 +581,7 @@ function OnboardingScreen({ user, dispatch }) {
                 <span style={{ fontWeight: 800, color: C.green, fontSize: 22, minWidth: 40 }}>{goals.invPct}%</span>
               </div>
               <div style={{ fontSize: 12, color: C.dim, marginBottom: 14 }}>
-                = {fmt(user.income * goals.invPct / 100)}/mes · Mínimo sugerido: 10–15%
+                = {fmt(obMonthly * goals.invPct / 100)}/mes · Mínimo sugerido: 10–15%
               </div>
               <label style={sx.label}>¿Ya tenés inversiones? ($)</label>
               <input style={sx.input} type="number" placeholder="0" value={goals.invBal}
@@ -520,8 +596,11 @@ function OnboardingScreen({ user, dispatch }) {
         {step > 0 && (
           <button style={{ ...sx.btn("#374151") }} onClick={() => setStep((s) => s - 1)}>← Atrás</button>
         )}
-        <button style={{ ...sx.btn(C.green), flex: 1, justifyContent: "center" }}
-          onClick={() => step < STEPS.length - 1 ? setStep((s) => s + 1) : finish()}>
+        <button style={{ ...sx.btn(step === 0 && !incomeVal ? "#374151" : C.green), flex: 1, justifyContent: "center" }}
+          onClick={() => {
+            if (step === 0 && !incomeVal) return;
+            step < STEPS.length - 1 ? setStep((s) => s + 1) : finish();
+          }}>
           {step < STEPS.length - 1 ? "Continuar →" : "🚀 ¡Empezar a gestionar mis finanzas!"}
         </button>
       </div>
@@ -546,6 +625,7 @@ function MainApp({ user, state, dispatch }) {
   const [showAddInc, setShowAddInc] = useState(false);
   const [newInc, setNewInc]       = useState({ amount: "", desc: "", date: todayStr() });
   const [incomeEdit, setIncomeEdit] = useState(user.income.toString());
+  const [freqEdit, setFreqEdit]     = useState(userFreq);
 
   const [newExp, setNewExp] = useState({ cat: "comida", amount: "", desc: "", date: todayStr(), tipo: "ocio" });
   const [goalsEdit, setGoalsEdit] = useState({
@@ -562,18 +642,25 @@ function MainApp({ user, state, dispatch }) {
   const [aiMessages, setAiMessages] = useState([]);
   const [aiInput, setAiInput]       = useState("");
   const [aiLoading, setAiLoading]   = useState(false);
+  const [showSalaryHistory, setShowSalaryHistory] = useState(false);
+  const [newSalary, setNewSalary]   = useState({ amount: "", freq: user.payFrequency || "mensual", note: "", date: todayStr() });
 
   // ── Computed ──
+  // Frecuencia de cobro → conversión a mensual para TODOS los cálculos
+  const userFreq        = user.payFrequency || "mensual";
+  const freqInfo        = PAY_FREQ[userFreq] || PAY_FREQ.mensual;
+  const monthlyIncome   = useMemo(() => toMonthly(user.income, userFreq), [user.income, userFreq]);
+
   const totalFixed      = useMemo(() => user.fixedExpenses.reduce((s, e) => s + e.amount, 0), [user.fixedExpenses]);
   const totalDebtMo     = useMemo(() => user.debts.reduce((s, d) => s + (+d.monthly || 0), 0), [user.debts]);
   const thisMonthExp    = useMemo(() => { const m = monthStr(); return user.dailyExpenses.filter((e) => e.date.startsWith(m)); }, [user.dailyExpenses]);
   const thisMonthInc    = useMemo(() => { const m = monthStr(); return (user.extraIncome || []).filter((i) => i.date.startsWith(m)); }, [user.extraIncome]);
   const totalDaily      = useMemo(() => thisMonthExp.reduce((s, e) => s + e.amount, 0), [thisMonthExp]);
   const totalExtraInc   = useMemo(() => thisMonthInc.reduce((s, i) => s + i.amount, 0), [thisMonthInc]);
-  // Para análisis 50/30/20 y score solo usamos el ingreso BASE (estable)
+  // Para análisis 50/30/20 y score solo usamos el ingreso BASE (estable, convertido a mensual)
   // Los extras son variables y no deben inflar la salud financiera
-  const effectiveIncome = user.income; // base estable
-  const totalIncomeMes  = user.income + totalExtraInc; // total real del mes (para el "disponible")
+  const effectiveIncome = monthlyIncome; // base estable mensualizada
+  const totalIncomeMes  = monthlyIncome + totalExtraInc; // total real del mes (para el "disponible")
 
   // Split daily expenses by tipo (necesidad vs ocio) for 50/30/20
   const dailyNecesidades = useMemo(() => thisMonthExp.filter((e) => e.tipo === "necesidad").reduce((s, e) => s + e.amount, 0), [thisMonthExp]);
@@ -585,7 +672,7 @@ function MainApp({ user, state, dispatch }) {
   const totalExp     = totalFixed + totalDebtMo;
   const emGoal       = totalExp * user.goals.emMonths;
   const emPct        = emGoal > 0 ? (user.goals.emBal / emGoal) * 100 : 0;
-  const score        = useMemo(() => calcScore(user), [user]);
+  const score        = useMemo(() => calcScore(user, monthlyIncome), [user, monthlyIncome]);
 
   const byCat = useMemo(() => {
     const g = {};
@@ -654,9 +741,9 @@ function MainApp({ user, state, dispatch }) {
 
   const projection = useMemo(() => Array.from({ length: 6 }, (_, i) => ({
     name: `M${i + 1}`,
-    emergencia:  Math.round(user.goals.emBal  + (user.income * 0.10) * (i + 1)),
+    emergencia:  Math.round(user.goals.emBal  + (monthlyIncome * 0.10) * (i + 1)),
     inversiones: Math.round(user.goals.invBal + invMonthly * (i + 1)),
-  })), [user.goals.emBal, user.goals.invBal, user.income, invMonthly]);
+  })), [user.goals.emBal, user.goals.invBal, monthlyIncome, invMonthly]);
 
   const TABS = [
     { id: "inicio",  label: "Inicio",  icon: "📊" },
@@ -678,11 +765,16 @@ function MainApp({ user, state, dispatch }) {
             <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>{scoreLabel}</div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 11, color: C.dim }}>Ingreso del mes</div>
-            <div style={{ fontSize: 20, fontWeight: 800 }}>{fmt(effectiveIncome)}</div>
+            <div style={{ fontSize: 11, color: C.dim }}>Ingreso mensual</div>
+            <div style={{ fontSize: 20, fontWeight: 800 }}>{fmt(monthlyIncome)}</div>
+            {userFreq !== "mensual" && (
+              <div style={{ fontSize: 11, color: C.blue, marginTop: 1 }}>
+                {fmt(user.income)} {freqInfo.perLabel}
+              </div>
+            )}
             {totalExtraInc > 0 && (
-              <div style={{ fontSize: 11, color: C.green, marginTop: 2 }}>
-                Base {fmt(user.income)} + Extra {fmt(totalExtraInc)}
+              <div style={{ fontSize: 11, color: C.green, marginTop: 1 }}>
+                +{fmt(totalExtraInc)} extra este mes
               </div>
             )}
             <div style={{ fontSize: 12, color: remaining >= 0 ? C.green : C.red, marginTop: 4, fontWeight: 700 }}>
@@ -749,6 +841,31 @@ function MainApp({ user, state, dispatch }) {
         ))}
       </div>
 
+      {/* Breakdown de cobro por período */}
+      <div style={{ ...sx.card, background: "#0f1a2e", borderColor: "#1e3a5f" }}>
+        <div style={{ ...sx.row, marginBottom: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#60a5fa" }}>💼 Tu salario desglosado</div>
+          <span style={{ background: "#1e3a5f", color: "#60a5fa", borderRadius: 8, padding: "3px 10px", fontSize: 11, fontWeight: 600 }}>{freqInfo.label}</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
+          {[
+            { label: "Por día",     val: monthlyIncome / 30 },
+            { label: "Por semana",  val: monthlyIncome / 4.333 },
+            { label: "Por mes",     val: monthlyIncome },
+          ].map((m) => (
+            <div key={m.label} style={{ background: "#1a2a45", borderRadius: 10, padding: "10px 8px", textAlign: "center" }}>
+              <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 3 }}>{m.label}</div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#f1f5f9" }}>{fmt(Math.round(m.val))}</div>
+            </div>
+          ))}
+        </div>
+        {userFreq !== "mensual" && (
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 10, textAlign: "center" }}>
+            Cobrás {fmt(user.income)} {freqInfo.perLabel} · equivale a {fmt(monthlyIncome)}/mes
+          </div>
+        )}
+      </div>
+
       {/* 4 métricas */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
         {[
@@ -769,7 +886,11 @@ function MainApp({ user, state, dispatch }) {
       {/* Regla 50/30/20 */}
       <div style={sx.card}>
         <div style={{ fontWeight: 700, marginBottom: 6 }}>Regla 50 / 30 / 20 — tu situación real</div>
-        <div style={{ fontSize: 11, color: C.dim, marginBottom: 12 }}>Basado en ingreso fijo {fmt(user.income)}/mes · los ingresos variables no se incluyen</div>
+        <div style={{ fontSize: 11, color: C.dim, marginBottom: 12 }}>
+          Basado en ingreso base {fmt(monthlyIncome)}/mes
+          {userFreq !== "mensual" && ` (${fmt(user.income)} ${freqInfo.perLabel})`}
+          · los ingresos variables no se incluyen
+        </div>
         {[
           { label: "Necesidades (ideal 50%)", val: totalFixed + totalDebtMo + dailyNecesidades, ideal: 0.5, color: C.blue, sub: "Fijos + deudas + necesidades diarias" },
           { label: "Ocio / gustos (ideal 30%)", val: dailyOcio, ideal: 0.3, color: C.amber, sub: "Gastos etiquetados como 'gusto'" },
@@ -852,7 +973,7 @@ function MainApp({ user, state, dispatch }) {
       <div style={{ ...sx.row, marginBottom: 12 }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 16 }}>Gastos fijos</div>
-          <div style={{ fontSize: 12, color: C.dim }}>Total: {fmt(totalFixed)} · {user.income > 0 ? ((totalFixed / user.income) * 100).toFixed(0) : 0}% del ingreso</div>
+          <div style={{ fontSize: 12, color: C.dim }}>Total: {fmt(totalFixed)} · {monthlyIncome > 0 ? ((totalFixed / monthlyIncome) * 100).toFixed(0) : 0}% del ingreso mensual</div>
         </div>
         <button style={sx.btn()} onClick={() => {
           setFixedEdit(FIXED_TYPES.reduce((acc, t) => { const ex = user.fixedExpenses.find((e) => e.typeId === t.id); return { ...acc, [t.id]: ex ? ex.amount.toString() : "" }; }, {}));
@@ -1225,7 +1346,7 @@ function MainApp({ user, state, dispatch }) {
           <span style={{ fontSize: 12, color: C.muted }}>{emPct.toFixed(0)}% alcanzado</span>
           {emGoal > 0 && emPct < 100 && (
             <span style={{ fontSize: 12, color: C.blue, fontWeight: 600 }}>
-              Faltan {fmt(emGoal - user.goals.emBal)} ≈ {Math.ceil((emGoal - user.goals.emBal) / (user.income * 0.10))} meses
+              Faltan {fmt(emGoal - user.goals.emBal)} ≈ {Math.ceil((emGoal - user.goals.emBal) / (monthlyIncome * 0.10))} meses
             </span>
           )}
           {emPct >= 100 && <span style={sx.pill(C.green)}>🎉 ¡Meta lograda!</span>}
@@ -1314,7 +1435,7 @@ function MainApp({ user, state, dispatch }) {
       {/* Diagnóstico personalizado */}
       <div style={{ ...sx.card, background: "#0f1a2e", borderColor: "#1e3a5f", marginBottom: 16 }}>
         <div style={{ fontWeight: 700, color: "#60a5fa", marginBottom: 10 }}>🔍 Tu diagnóstico personalizado</div>
-        {user.income > 0 && totalFixed / user.income > 0.7 && (
+        {monthlyIncome > 0 && totalFixed / monthlyIncome > 0.7 && (
           <div style={{ fontSize: 13, color: C.amber, marginBottom: 8, lineHeight: 1.5 }}>⚠️ Tus gastos fijos superan el 70% del ingreso. Buscá reducir al menos una categoría fija para ganar margen de ahorro.</div>
         )}
         {user.debts.length > 0 && (
@@ -1374,7 +1495,10 @@ function MainApp({ user, state, dispatch }) {
       const res = await fetch("/api/advisor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userData: user, question: q }),
+        body: JSON.stringify({
+          userData: { ...user, monthlyIncome, payFrequencyLabel: freqInfo.label },
+          question: q,
+        }),
       });
       const data = await res.json();
       setAiMessages((prev) => [...prev, { role: "ai", text: data.answer }]);
@@ -1385,9 +1509,9 @@ function MainApp({ user, state, dispatch }) {
   };
 
   const tabAsesor = () => {
-    // Diagnóstico personalizado
-    const debtRatio    = user.income > 0 ? (totalDebtMo / user.income) * 100 : 0;
-    const fixedRatio   = user.income > 0 ? (totalFixed / user.income) * 100 : 0;
+    // Diagnóstico personalizado — usa monthlyIncome para métricas correctas
+    const debtRatio    = monthlyIncome > 0 ? (totalDebtMo / monthlyIncome) * 100 : 0;
+    const fixedRatio   = monthlyIncome > 0 ? (totalFixed / monthlyIncome) * 100 : 0;
     const totalBurden  = debtRatio + fixedRatio;
     const freeRatio    = 100 - totalBurden;
     const emGoalLocal  = (totalFixed + totalDebtMo) * user.goals.emMonths;
@@ -1656,12 +1780,62 @@ function MainApp({ user, state, dispatch }) {
           ) : (
             <>
               <div style={{ fontWeight: 700, marginBottom: 12 }}>⚙️ Configuración</div>
-              <label style={sx.label}>Ingreso mensual</label>
-              <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-                <input style={{ ...sx.input, flex: 1 }} type="number" value={incomeEdit} onChange={(e) => setIncomeEdit(e.target.value)} />
-                <button style={{ ...sx.btn(), borderRadius: 10, padding: "10px 14px" }}
-                  onClick={() => { if (+incomeEdit > 0) { dispatch({ type: "UPD", data: { income: +incomeEdit } }); setShowSettings(false); } }}>✓</button>
+
+              {/* Frecuencia de cobro */}
+              <label style={sx.label}>Frecuencia de cobro</label>
+              <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                {Object.entries(PAY_FREQ).map(([key, f]) => (
+                  <button key={key} onClick={() => setFreqEdit(key)}
+                    style={{ flex: 1, padding: "8px 4px", borderRadius: 10, border: `2px solid ${freqEdit === key ? C.green : "#374151"}`, background: freqEdit === key ? "#10b98122" : "transparent", color: freqEdit === key ? C.green : C.muted, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                    {f.label}
+                  </button>
+                ))}
               </div>
+
+              <label style={sx.label}>Ingreso {PAY_FREQ[freqEdit]?.perLabel || "por mes"}</label>
+              <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                <input style={{ ...sx.input, flex: 1 }} type="number" value={incomeEdit} onChange={(e) => setIncomeEdit(e.target.value)}
+                  placeholder={`Ej: ${freqEdit === "semanal" ? "100000" : freqEdit === "quincenal" ? "200000" : "400000"}`} />
+                <button style={{ ...sx.btn(), borderRadius: 10, padding: "10px 14px" }}
+                  onClick={() => {
+                    if (+incomeEdit > 0) {
+                      const prev = { date: todayStr(), amount: user.income, freq: userFreq, note: "Anterior" };
+                      const hist = user.salaryHistory || [];
+                      // Solo guardamos historial si cambió
+                      const updHistory = (user.income !== +incomeEdit || userFreq !== freqEdit)
+                        ? [{ id: uid(), ...prev }, ...hist].slice(0, 12)
+                        : hist;
+                      dispatch({ type: "UPD", data: { income: +incomeEdit, payFrequency: freqEdit, salaryHistory: updHistory } });
+                      setShowSettings(false);
+                    }
+                  }}>✓</button>
+              </div>
+              {+incomeEdit > 0 && freqEdit !== "mensual" && (
+                <div style={{ fontSize: 11, color: C.blue, marginBottom: 10 }}>
+                  ≈ {fmt(toMonthly(+incomeEdit, freqEdit))}/mes
+                </div>
+              )}
+
+              {/* Historial de salario */}
+              {(user.salaryHistory || []).length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <button onClick={() => setShowSalaryHistory(!showSalaryHistory)}
+                    style={{ background: "none", border: "none", color: C.blue, fontSize: 12, cursor: "pointer", padding: 0, marginBottom: 6 }}>
+                    📈 Historial de salario {showSalaryHistory ? "▲" : "▼"}
+                  </button>
+                  {showSalaryHistory && (
+                    <div style={{ background: "#0f1623", borderRadius: 10, padding: 10 }}>
+                      {(user.salaryHistory || []).slice(0, 6).map((h, i) => (
+                        <div key={h.id || i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.muted, padding: "4px 0", borderBottom: "1px solid #1f2937" }}>
+                          <span>{h.date} · {PAY_FREQ[h.freq]?.label || "Mensual"}</span>
+                          <span style={{ color: C.text, fontWeight: 600 }}>{fmt(h.amount)}{h.freq !== "mensual" ? ` → ${fmt(toMonthly(h.amount, h.freq))}/mes` : "/mes"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <button style={{ ...sx.btn(C.blue), justifyContent: "center" }} onClick={() => { exportJSON(state); setShowSettings(false); }}>💾 Exportar mis datos (backup)</button>
                 <button style={{ ...sx.btn("#374151"), justifyContent: "center" }} onClick={() => { dispatch({ type: "LOGOUT" }); setShowSettings(false); }}>👤 Cambiar de usuario</button>
