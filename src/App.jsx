@@ -625,7 +625,7 @@ function MainApp({ user, state, dispatch }) {
   const [showAddInc, setShowAddInc] = useState(false);
   const [newInc, setNewInc]       = useState({ amount: "", desc: "", date: todayStr() });
   const [incomeEdit, setIncomeEdit] = useState(user.income.toString());
-  const [freqEdit, setFreqEdit]     = useState(userFreq);
+  const [freqEdit, setFreqEdit]     = useState(user.payFrequency || "mensual");
 
   const [newExp, setNewExp] = useState({ cat: "comida", amount: "", desc: "", date: todayStr(), tipo: "ocio" });
   const [goalsEdit, setGoalsEdit] = useState({
