@@ -94,9 +94,42 @@ const PAY_FREQ = {
   mensual:   { label: "Mensual",   short: "mes",   factor: 1,      perLabel: "por mes",        weeksPerYear: 12 },
 };
 
-// Convierte el ingreso del período al equivalente mensual
+// Convierte el ingreso del período al equivalente mensual (promedio anual)
 const toMonthly = (amount, freq = "mensual") =>
   Math.round((+amount || 0) * (PAY_FREQ[freq]?.factor || 1));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WORK SCHEDULE — días laborales
+// ─────────────────────────────────────────────────────────────────────────────
+
+const WORK_SCHEDULES = {
+  "lun-vie": { label: "Lun–Vie",    short: "L–V",  days: [1,2,3,4,5],     daysPerWeek: 5 },
+  "lun-sab": { label: "Lun–Sáb",   short: "L–S",  days: [1,2,3,4,5,6],   daysPerWeek: 6 },
+  "todos":   { label: "Todos",      short: "7d",   days: [0,1,2,3,4,5,6], daysPerWeek: 7 },
+};
+
+// Cuenta los días hábiles del mes actual según el esquema laboral
+function countWorkingDays(schedKey = "lun-vie") {
+  const s = WORK_SCHEDULES[schedKey] || WORK_SCHEDULES["lun-vie"];
+  const now = new Date();
+  const y = now.getFullYear(), mo = now.getMonth();
+  const total = new Date(y, mo + 1, 0).getDate();
+  let n = 0;
+  for (let d = 1; d <= total; d++) {
+    if (s.days.includes(new Date(y, mo, d).getDay())) n++;
+  }
+  return n;
+}
+
+// Calcula ingreso de ESTE MES EXACTO usando días hábiles reales (no promedio)
+function toMonthlyExact(income, freq, schedKey = "lun-vie") {
+  if (freq === "mensual") return Math.round(+income);
+  const s = WORK_SCHEDULES[schedKey] || WORK_SCHEDULES["lun-vie"];
+  // cuántos días laborales hay en el período de pago
+  const daysPerPeriod = freq === "semanal" ? s.daysPerWeek : s.daysPerWeek * 2;
+  const dailyRate = (+income) / daysPerPeriod;
+  return Math.round(dailyRate * countWorkingDays(schedKey));
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -156,6 +189,7 @@ const mkUser = (name, income, payFrequency = "mensual") => ({
   id: uid(), name,
   income: +income,          // monto POR PERÍODO (semana / quincena / mes)
   payFrequency,             // "semanal" | "quincenal" | "mensual"
+  workSchedule: "lun-vie",  // "lun-vie" | "lun-sab" | "todos"
   salaryHistory: [],        // [{ id, date, amount, freq, note }]
   fixedExpenses: [], debts: [], dailyExpenses: [],
   extraIncome: [],          // [{ id, amount, desc, date }]
@@ -341,6 +375,7 @@ function LoginScreen({ state, dispatch }) {
 function OnboardingScreen({ user, dispatch }) {
   const [step, setStep]       = useState(0);
   const [payFreq, setPayFreq] = useState(user.payFrequency || "mensual");
+  const [workSched, setWorkSched] = useState(user.workSchedule || "lun-vie");
   const [incomeVal, setIncomeVal] = useState(user.income > 0 ? user.income.toString() : "");
   const [fixed, setFixed]     = useState(() => FIXED_TYPES.reduce((a, t) => ({ ...a, [t.id]: "" }), {}));
   const [debts, setDebts]     = useState([]);
@@ -368,6 +403,7 @@ function OnboardingScreen({ user, dispatch }) {
     dispatch({ type: "ONBOARD", data: {
       income: newIncome,
       payFrequency: payFreq,
+      workSchedule: workSched,
       fixedExpenses, debts,
       goals: { emMonths: goals.emMonths, invPct: goals.invPct, emBal: +goals.emBal || 0, invBal: +goals.invBal || 0 }
     }});
@@ -416,28 +452,61 @@ function OnboardingScreen({ user, dispatch }) {
                 ))}
               </div>
 
+              {payFreq !== "mensual" && (
+                <>
+                  <label style={sx.label}>¿Qué días trabajás?</label>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                    {Object.entries(WORK_SCHEDULES).map(([key, s]) => (
+                      <button key={key} onClick={() => setWorkSched(key)}
+                        style={{ flex: 1, padding: "10px 4px", borderRadius: 10, border: `2px solid ${workSched === key ? C.blue : "#374151"}`, background: workSched === key ? "#3b82f622" : "transparent", color: workSched === key ? C.blue : C.muted, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+                        {s.label}
+                        <div style={{ fontSize: 10, fontWeight: 400, marginTop: 2, color: workSched === key ? C.blue : C.dim }}>{s.daysPerWeek} días/sem</div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
               <label style={sx.label}>¿Cuánto cobrás {PAY_FREQ[payFreq].perLabel}?</label>
               <input style={{ ...sx.input, marginBottom: 8 }} type="number"
                 placeholder={`Ej: ${payFreq === "semanal" ? "100000" : payFreq === "quincenal" ? "200000" : "400000"}`}
                 value={incomeVal} onChange={(e) => setIncomeVal(e.target.value)} />
 
-              {+incomeVal > 0 && (
-                <div style={{ background: "#0a1f14", borderRadius: 10, padding: 12, marginTop: 4 }}>
-                  <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>Tu salario desglosado</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
-                    {[
-                      { label: "Por día",    val: toMonthly(+incomeVal, payFreq) / 30 },
-                      { label: "Por semana", val: toMonthly(+incomeVal, payFreq) / 4.333 },
-                      { label: "Por mes",    val: toMonthly(+incomeVal, payFreq) },
-                    ].map((m) => (
-                      <div key={m.label} style={{ textAlign: "center" }}>
-                        <div style={{ fontSize: 10, color: C.dim, marginBottom: 2 }}>{m.label}</div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: C.green }}>{fmt(Math.round(m.val))}</div>
+              {+incomeVal > 0 && (() => {
+                const sched = WORK_SCHEDULES[workSched] || WORK_SCHEDULES["lun-vie"];
+                const daysPerPeriod = payFreq === "semanal" ? sched.daysPerWeek : payFreq === "quincenal" ? sched.daysPerWeek * 2 : 30;
+                const dailyRate = payFreq === "mensual" ? toMonthly(+incomeVal, payFreq) / 30 : +incomeVal / daysPerPeriod;
+                const workDays = countWorkingDays(workSched);
+                const thisMon = payFreq === "mensual" ? toMonthly(+incomeVal, payFreq) : Math.round(dailyRate * workDays);
+                const avgMon = toMonthly(+incomeVal, payFreq);
+                return (
+                  <div style={{ background: "#0a1f14", borderRadius: 10, padding: 12, marginTop: 4 }}>
+                    <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>Tu salario desglosado</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                      {payFreq !== "mensual" && <div style={{ textAlign: "center", background: "#10b98118", borderRadius: 8, padding: 8 }}>
+                        <div style={{ fontSize: 10, color: C.dim, marginBottom: 2 }}>Por día laboral</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.green }}>{fmt(Math.round(dailyRate))}</div>
+                      </div>}
+                      <div style={{ textAlign: "center", background: "#10b98118", borderRadius: 8, padding: 8 }}>
+                        <div style={{ fontSize: 10, color: C.dim, marginBottom: 2 }}>{PAY_FREQ[payFreq].perLabel.replace("por ", "Por ")}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.green }}>{fmt(+incomeVal)}</div>
                       </div>
-                    ))}
+                    </div>
+                    {payFreq !== "mensual" && (
+                      <div style={{ background: "#1e3a5f", borderRadius: 8, padding: 10, marginBottom: 6 }}>
+                        <div style={{ fontSize: 11, color: "#60a5fa", fontWeight: 700, marginBottom: 2 }}>
+                          Este mes ({new Date().toLocaleString("es-AR",{month:"long"})}) — {workDays} días hábiles
+                        </div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: "#f1f5f9" }}>{fmt(thisMon)}</div>
+                      </div>
+                    )}
+                    <div style={{ fontSize: 10, color: C.dim, lineHeight: 1.5 }}>
+                      Promedio mensual (52 sem ÷ 12): {fmt(avgMon)}
+                      {payFreq !== "mensual" && ` · La varianza real es entre ${fmt(Math.round(dailyRate * (workDays - 2)))} y ${fmt(Math.round(dailyRate * (workDays + 2)))} según el mes`}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           </div>
         )}
@@ -649,7 +718,19 @@ function MainApp({ user, state, dispatch }) {
   // Frecuencia de cobro → conversión a mensual para TODOS los cálculos
   const userFreq        = user.payFrequency || "mensual";
   const freqInfo        = PAY_FREQ[userFreq] || PAY_FREQ.mensual;
+  const userSched       = user.workSchedule || "lun-vie";
+  const schedInfo       = WORK_SCHEDULES[userSched] || WORK_SCHEDULES["lun-vie"];
+  const workDaysThisMon = useMemo(() => countWorkingDays(userSched), [userSched]);
+  // Promedio anual (para score / 50-30-20 / proyecciones — estable)
   const monthlyIncome   = useMemo(() => toMonthly(user.income, userFreq), [user.income, userFreq]);
+  // Ingreso EXACTO de este mes (días hábiles reales — para mostrar en UI)
+  const monthlyIncomeExact = useMemo(() => toMonthlyExact(user.income, userFreq, userSched), [user.income, userFreq, userSched]);
+  // Tarifa diaria laboral
+  const dailyRate       = useMemo(() => {
+    if (userFreq === "mensual") return Math.round(monthlyIncome / 30);
+    const daysPerPeriod = userFreq === "semanal" ? schedInfo.daysPerWeek : schedInfo.daysPerWeek * 2;
+    return Math.round(user.income / daysPerPeriod);
+  }, [user.income, userFreq, schedInfo]);
 
   const totalFixed      = useMemo(() => user.fixedExpenses.reduce((s, e) => s + e.amount, 0), [user.fixedExpenses]);
   const totalDebtMo     = useMemo(() => user.debts.reduce((s, d) => s + (+d.monthly || 0), 0), [user.debts]);
@@ -845,23 +926,39 @@ function MainApp({ user, state, dispatch }) {
       <div style={{ ...sx.card, background: "#0f1a2e", borderColor: "#1e3a5f" }}>
         <div style={{ ...sx.row, marginBottom: 10 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#60a5fa" }}>💼 Tu salario desglosado</div>
-          <span style={{ background: "#1e3a5f", color: "#60a5fa", borderRadius: 8, padding: "3px 10px", fontSize: 11, fontWeight: 600 }}>{freqInfo.label}</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <span style={{ background: "#1e3a5f", color: "#60a5fa", borderRadius: 8, padding: "3px 8px", fontSize: 11, fontWeight: 600 }}>{freqInfo.label}</span>
+            {userFreq !== "mensual" && <span style={{ background: "#1e3a5f", color: "#60a5fa", borderRadius: 8, padding: "3px 8px", fontSize: 11, fontWeight: 600 }}>{schedInfo.label}</span>}
+          </div>
         </div>
+
+        {userFreq !== "mensual" && (
+          <div style={{ background: "#1e3a5f", borderRadius: 10, padding: "10px 14px", marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: "#93c5fd", marginBottom: 2 }}>
+              Este mes ({new Date().toLocaleString("es-AR",{month:"long"})}) — {workDaysThisMon} días hábiles {schedInfo.label}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: "#f1f5f9" }}>{fmt(monthlyIncomeExact)}</div>
+            <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>
+              {fmt(dailyRate)}/día × {workDaysThisMon} días
+            </div>
+          </div>
+        )}
+
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
           {[
-            { label: "Por día",     val: monthlyIncome / 30 },
-            { label: "Por semana",  val: monthlyIncome / 4.333 },
-            { label: "Por mes",     val: monthlyIncome },
+            { label: "Por día laboral", val: dailyRate },
+            { label: `Por ${userFreq === "semanal" ? "semana" : userFreq === "quincenal" ? "quincena" : "mes"}`, val: user.income },
+            { label: "Promedio/mes ☆", val: monthlyIncome },
           ].map((m) => (
             <div key={m.label} style={{ background: "#1a2a45", borderRadius: 10, padding: "10px 8px", textAlign: "center" }}>
-              <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 3 }}>{m.label}</div>
+              <div style={{ fontSize: 9, color: "#6b7280", marginBottom: 3 }}>{m.label}</div>
               <div style={{ fontSize: 13, fontWeight: 800, color: "#f1f5f9" }}>{fmt(Math.round(m.val))}</div>
             </div>
           ))}
         </div>
         {userFreq !== "mensual" && (
-          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 10, textAlign: "center" }}>
-            Cobrás {fmt(user.income)} {freqInfo.perLabel} · equivale a {fmt(monthlyIncome)}/mes
+          <div style={{ fontSize: 10, color: "#4b5563", marginTop: 8, lineHeight: 1.5 }}>
+            ☆ Promedio = 52 semanas ÷ 12 meses. Varía entre ~{fmt(Math.round(dailyRate * (workDaysThisMon - 3)))} y ~{fmt(Math.round(dailyRate * (workDaysThisMon + 3)))} según cuántos días hábiles tenga cada mes.
           </div>
         )}
       </div>
@@ -1747,7 +1844,7 @@ function MainApp({ user, state, dispatch }) {
 
   // ── RENDER PRINCIPAL ────────────────────────────────────────────────────────
   return (
-    <div style={{ fontFamily: "'Inter',-apple-system,sans-serif", background: C.bg, minHeight: "100vh", color: C.text, display: "flex", flexDirection: "column", maxWidth: 440, margin: "0 auto" }}>
+    <div style={{ fontFamily: "'Inter',-apple-system,sans-serif", background: C.bg, height: "100vh", color: C.text, display: "flex", flexDirection: "column", maxWidth: 440, margin: "0 auto", overflow: "hidden" }}>
 
       {/* Header */}
       <div style={{ padding: "14px 16px 12px", background: "#0f1729", borderBottom: "1px solid #1e293b", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1791,6 +1888,23 @@ function MainApp({ user, state, dispatch }) {
                   </button>
                 ))}
               </div>
+
+              {/* Días laborales */}
+              {freqEdit !== "mensual" && (
+                <>
+                  <label style={sx.label}>Días que trabajás</label>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                    {Object.entries(WORK_SCHEDULES).map(([key, s]) => (
+                      <button key={key}
+                        onClick={() => dispatch({ type: "UPD", data: { workSchedule: key } })}
+                        style={{ flex: 1, padding: "8px 4px", borderRadius: 10, border: `2px solid ${userSched === key ? C.blue : "#374151"}`, background: userSched === key ? "#3b82f622" : "transparent", color: userSched === key ? C.blue : C.muted, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                        {s.label}
+                        <div style={{ fontSize: 9, fontWeight: 400, marginTop: 1, color: userSched === key ? C.blue : C.dim }}>{s.daysPerWeek}d/sem</div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
 
               <label style={sx.label}>Ingreso {PAY_FREQ[freqEdit]?.perLabel || "por mes"}</label>
               <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
@@ -1874,7 +1988,7 @@ function MainApp({ user, state, dispatch }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function FirebaseLoginScreen() {
-  const [mode, setMode]       = useState("login"); // "login" | "register"
+  const [mode, setMode]       = useState("login");
   const [email, setEmail]     = useState("");
   const [pass, setPass]       = useState("");
   const [error, setError]     = useState("");
@@ -1914,9 +2028,7 @@ function FirebaseLoginScreen() {
       </div>
 
       <div style={card}>
-        <button
-          onClick={doGoogle}
-          disabled={loading}
+        <button onClick={doGoogle} disabled={loading}
           style={{ ...sx.btn("#fff"), color: "#111", width: "100%", justifyContent: "center", marginBottom: 20, fontSize: 15, padding: "13px 0" }}>
           <span>🔵</span> {loading ? "Cargando..." : "Continuar con Google"}
         </button>
@@ -1961,21 +2073,18 @@ function FirebaseLoginScreen() {
 
 export default function App() {
   const [state, dispatch]   = useReducer(reduce, INIT);
-  const [fbUser, setFbUser] = useState(undefined); // undefined=cargando, null=no logueado
+  const [fbUser, setFbUser] = useState(undefined);
   const initialized         = useRef(false);
   const saving              = useRef(false);
 
-  // Escucha cambios de auth de Firebase
   useEffect(() => {
     const unsub = onAuth(async (u) => {
       setFbUser(u);
       if (!u) { initialized.current = false; return; }
-      // Carga datos desde Firestore
       const data = await loadUserData(u.uid);
       if (data) {
         dispatch({ type: "IMPORT", data });
       } else {
-        // Usuario nuevo: crear perfil con UID de Firebase
         dispatch({ type: "CREATE_FB", uid: u.uid, name: u.displayName || u.email?.split("@")[0] || "Usuario" });
       }
       initialized.current = true;
@@ -1983,14 +2092,12 @@ export default function App() {
     return unsub;
   }, []);
 
-  // Guarda en Firestore cada vez que cambia el estado (después de inicializar)
   useEffect(() => {
     if (!fbUser || !initialized.current || saving.current) return;
     saving.current = true;
     saveUserData(fbUser.uid, state).finally(() => { saving.current = false; });
   }, [state, fbUser]);
 
-  // Pantalla de carga
   if (fbUser === undefined) {
     return (
       <div style={{ background: "#0a0e1a", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, color: "#f1f5f9", fontFamily: "'Inter',sans-serif" }}>
@@ -2004,11 +2111,9 @@ export default function App() {
 
   const user = state.users.find((u) => u.id === state.uid);
 
-  // Usuario nuevo: mostrar formulario de perfil (nombre ya viene de Firebase)
   if (!state.uid || !user) return <LoginScreen state={state} dispatch={dispatch} />;
   if (!user.onboarded)     return <OnboardingScreen user={user} dispatch={dispatch} />;
 
-  // Agregar botón de cerrar sesión en el dispatch original
   const dispatchWithLogout = (action) => {
     if (action.type === "LOGOUT") { logout(); return; }
     dispatch(action);
