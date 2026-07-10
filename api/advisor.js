@@ -60,15 +60,13 @@ Respondé la pregunta del usuario de forma personalizada, usando sus números re
     });
   }
 
-  // Probamos distintos modelos y versiones de API en orden de preferencia
+  // Modelos disponibles en orden de preferencia (verificados con ListModels)
   const ATTEMPTS = [
+    { api: "v1beta", model: "gemini-2.5-flash" },
+    { api: "v1beta", model: "gemini-2.0-flash-lite" },
+    { api: "v1beta", model: "gemini-2.0-flash-001" },
     { api: "v1beta", model: "gemini-2.0-flash" },
-    { api: "v1beta", model: "gemini-2.0-flash-exp" },
-    { api: "v1",     model: "gemini-1.5-flash" },
-    { api: "v1",     model: "gemini-1.5-flash-latest" },
-    { api: "v1",     model: "gemini-1.5-pro" },
-    { api: "v1beta", model: "gemini-1.5-flash-latest" },
-    { api: "v1beta", model: "gemini-pro" },
+    { api: "v1beta", model: "gemini-2.5-pro" },
   ];
 
   const errors = [];
@@ -83,26 +81,27 @@ Respondé la pregunta del usuario de forma personalizada, usando sus números re
       const data = await res.json();
 
       if (!res.ok) {
-        errors.push(`[${api}/${model}] ${res.status}: ${data?.error?.message?.slice(0, 80) || "?"}`);
+        errors.push(`[${model}] ${res.status}: ${data?.error?.message?.slice(0, 100) || "?"}`);
+        // Si es 429 en este modelo, pasar al siguiente (más liviano)
         continue;
       }
 
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (text) {
-        return new Response(JSON.stringify({ answer: text, _model: model }), {
+        return new Response(JSON.stringify({ answer: text }), {
           headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
         });
       }
 
-      const reason = data?.candidates?.[0]?.finishReason || data?.promptFeedback?.blockReason || "sin texto";
-      errors.push(`[${api}/${model}] OK pero sin texto: ${reason}`);
+      const reason = data?.candidates?.[0]?.finishReason || "sin texto";
+      errors.push(`[${model}] OK pero sin texto: ${reason}`);
     } catch (e) {
-      errors.push(`[${api}/${model}] excepción: ${e.message}`);
+      errors.push(`[${model}] excepción: ${e.message}`);
     }
   }
 
   return new Response(JSON.stringify({
-    answer: `❌ Ningún modelo Gemini respondió correctamente.\n\n${errors.join("\n")}\n\nVerificá que la API key en Vercel (Settings → Environment Variables → GEMINI_API_KEY) sea válida y tenga la Gemini API habilitada en Google AI Studio (aistudio.google.com).`
+    answer: `❌ Sin respuesta disponible.\n\n${errors.join("\n")}\n\nSi todos muestran 429, la cuota diaria está agotada — se resetea mañana a las 4am (Argentina).`
   }), {
     headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
   });
